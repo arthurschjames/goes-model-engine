@@ -97,52 +97,109 @@ const BASE = {
   gfDepLife: 20, // Greenfield plant depreciation life
 };
 
-// Scenario overrides (only values that differ from BASE)
+// ─── Scenario Overrides ─────────────────────────────────────────────────────
+// Correlation-aware design: instead of a single "Bear" (every variable at its
+// worst) or "Bull" (every variable at its best), we use THEMED scenarios that
+// only stress variables within a correlated cluster. Variables outside the
+// stressed cluster stay at base. This avoids compounding uncorrelated extremes,
+// which is how IB/PE analysts actually build scenario models.
+//
+// Downside clusters:
+//   weakMkt   — pricing & competitive pressure (macro/market correlated)
+//   execRisk  — operational underperformance (execution correlated)
+//   advFin    — adverse deal/financing terms (capital markets correlated)
+//
+// Upside clusters:
+//   strongMkt — pricing tailwinds & delayed competition
+//   opsExcel  — operational outperformance & cost efficiency
+//   favDeal   — favorable entry/exit & financing
+//
+// Each themed scenario is individually plausible: the probability of ONE cluster
+// going wrong/right is meaningful, unlike every variable simultaneously at extremes.
+
 const OVERRIDES = {
   base: { label: "Base Case" },
-  bear: {
-    label: "Bear Case",
-    goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
-    goesPrice: 5000, duopolyImpact: 0.22,
-    goesProductionCost: 3200, goesPriceInflation: 0.01, nipponYear: 4, dodRenewal: false, doeYear: 3,
-    overheadBase: 55,
+
+  // ── Downside: Weak Market ──────────────────────────────────────────────────
+  // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue
+  // Unchanged: utilization ramp, production costs, deal structure, financing
+  weakMkt: {
+    label: "Weak Market",
+    goesPrice: 5000, duopolyImpact: 0.22, nipponYear: 4,
+    goesPriceInflation: 0.01, dodRenewal: false,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
+    mpASP: 750000, distASP: 18000, txPriceEscalation: 0.02,
     txBaseEBITDAMargin: 0.20,
-    txGreenfieldEnabled: true,
-    mpUnits: 150, mpASP: 700000, goesPerMP: 16,
-    mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
-    distASP: 18000, goesPerDist: 0.9,
-    distOpCostPct: 0.67, distIntermediatePct: 0.10,
-    ramp: [0, 0.25, 0.60, 0.90], greenfieldCapex: 275,
-    entryMultiple: 9.0, workingCapital: 110, pensionLiability: 400,
-    nwcPctRevenue: 0.18,
-    ltv: 0.45, costOfDebt: 0.08,
-    exitMultiple: 9, waccRate: 0.10,
-    cpiRate: 0.035, txPriceEscalation: 0.02, terminalGrowth: 0.02,
-    riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
+  },
+
+  // ── Downside: Execution Risk ───────────────────────────────────────────────
+  // Stress: slow ramp, high production costs, overhead, greenfield delays
+  // Unchanged: market pricing, deal terms, financing
+  execRisk: {
+    label: "Execution Risk",
+    goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
+    goesProductionCost: 3200, overheadBase: 55,
     butlerMaintCapex: 50,
+    ramp: [0, 0.20, 0.50, 0.80], greenfieldCapex: 275,
+    mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
+    distOpCostPct: 0.67, distIntermediatePct: 0.10,
+    doeYear: 3,
+    nwcPctRevenue: 0.18,
+    cpiRate: 0.035,
   },
-  bull: {
-    label: "Bull Case",
-    goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
-    goesPrice: 6500, duopolyImpact: 0.12,
-    goesProductionCost: 2400, goesPriceInflation: 0.04, nipponYear: 7, doeOn: true, doeYear: 2,
-    overheadBase: 35,
+
+  // ── Downside: Adverse Financing ────────────────────────────────────────────
+  // Stress: entry/exit multiples, cost of debt, leverage, pension
+  // Unchanged: operations, market pricing
+  advFin: {
+    label: "Adverse Financing",
+    entryMultiple: 9.0, exitMultiple: 9, workingCapital: 110,
+    pensionLiability: 400,
+    ltv: 0.45, costOfDebt: 0.08,
+    waccRate: 0.10, terminalGrowth: 0.02,
+    riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
+  },
+
+  // ── Upside: Strong Market ──────────────────────────────────────────────────
+  // Stress: GOES pricing up, competition delayed, DOE on, strong non-GOES
+  // Unchanged: utilization ramp, costs, deal structure
+  strongMkt: {
+    label: "Strong Market",
+    goesPrice: 6500, duopolyImpact: 0.12, nipponYear: 7,
+    goesPriceInflation: 0.04, doeOn: true, doeYear: 2,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
+    mpASP: 1100000, distASP: 28000, txPriceEscalation: 0.06,
     txBaseEBITDAMargin: 0.32,
-    txGreenfieldEnabled: true,
-    mpUnits: 450, mpASP: 1100000, goesPerMP: 12,
-    mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
-    distUnits: 2000, distASP: 28000, goesPerDist: 0.6,
-    distOpCostPct: 0.52, distIntermediatePct: 0.06,
-    greenfieldCapex: 375, internalizeIntermediate: true,
-    txNonCoreRevenue: 50, txNonCoreMargin: 0.25,
-    entryMultiple: 7.0, nwcPctRevenue: 0.12, ltv: 0.60, costOfDebt: 0.065,
-    exitMultiple: 16, waccRate: 0.085,
-    cpiRate: 0.020, txPriceEscalation: 0.06, terminalGrowth: 0.03,
-    riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
-    butlerMaintCapex: 35, txMaintCapex: 20,
   },
+
+  // ── Upside: Operational Excellence ─────────────────────────────────────────
+  // Stress: fast ramp, low costs, lean overhead, efficient greenfield
+  // Unchanged: market pricing, deal terms
+  opsExcel: {
+    label: "Ops Excellence",
+    goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
+    goesProductionCost: 2400, overheadBase: 35,
+    butlerMaintCapex: 35,
+    mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
+    distOpCostPct: 0.52, distIntermediatePct: 0.06,
+    greenfieldCapex: 175, internalizeIntermediate: true,
+    doeOn: true, doeYear: 1,
+    nwcPctRevenue: 0.12,
+    cpiRate: 0.020,
+  },
+
+  // ── Upside: Favorable Deal ─────────────────────────────────────────────────
+  // Stress: cheap entry, rich exit, good leverage terms
+  // Unchanged: operations, market pricing
+  favDeal: {
+    label: "Favorable Deal",
+    entryMultiple: 7.0, exitMultiple: 16,
+    ltv: 0.60, costOfDebt: 0.065,
+    waccRate: 0.085, terminalGrowth: 0.03,
+    riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
+  },
+
+  // ── Structural Scenarios ───────────────────────────────────────────────────
   goesOnly: {
     label: "GOES Only",
     txExistEnabled: false, txGreenfieldEnabled: false,
@@ -177,47 +234,43 @@ for (const [key, over] of Object.entries(OVERRIDES)) {
   DEFAULTS[key] = { ...BASE, ...over };
 }
 
-export const SCENARIO_KEYS = ["bear", "base", "bull", "goesOnly", "vtc", "deltaStar"];
+// Scenario grouping metadata — used by UI to organize the dropdown
+export const SCENARIO_GROUPS = {
+  downside: { label: "Downside Scenarios", keys: ["weakMkt", "execRisk", "advFin"] },
+  central: { label: "Central", keys: ["base"] },
+  upside: { label: "Upside Scenarios", keys: ["strongMkt", "opsExcel", "favDeal"] },
+  structural: { label: "Structural", keys: ["goesOnly", "vtc", "deltaStar"] },
+};
+
+export const SCENARIO_KEYS = [
+  "weakMkt", "execRisk", "advFin",
+  "base",
+  "strongMkt", "opsExcel", "favDeal",
+  "goesOnly", "vtc", "deltaStar",
+];
 export const SCENARIO_LABELS = {
-  bear: "Bear Case", base: "Base Case", bull: "Bull Case",
+  weakMkt: "Weak Market", execRisk: "Execution Risk", advFin: "Adverse Financing",
+  base: "Base Case",
+  strongMkt: "Strong Market", opsExcel: "Ops Excellence", favDeal: "Favorable Deal",
   goesOnly: "GOES Only", vtc: "VTC Acquisition", deltaStar: "Delta Star",
 };
 
-// ─── Scenario Blending ──────────────────────────────────────────────────────
-// Bear/Bull "dot" values represent the full extreme assumption for each input.
-// When loading Bear or Bull, we blend each numeric input 50% toward Base so
-// the scenario reflects a weighted view rather than every variable at its worst/best.
-// Base case always loads at its exact dot values (no blending).
-const BLEND_WEIGHT = 0.50; // fraction toward base (0 = full extreme, 1 = pure base)
-
-// Keys that should NOT be blended (booleans, enums, arrays, labels)
-const NO_BLEND_KEYS = new Set([
-  "label", "custom", "dodOn", "dodRenewal", "doeOn",
-  "internalizeIntermediate", "txExistEnabled", "txGreenfieldEnabled",
-  "ramp", "waccMode",
-]);
-
+// ─── Scenario Loading ───────────────────────────────────────────────────────
+// Themed scenarios load at their exact override values (no blending needed).
+// Each scenario only overrides its correlated cluster; all other variables
+// inherit from BASE. This replaces the old bear/bull 50% blending approach —
+// the correlation-aware design makes blending unnecessary because each scenario
+// is already individually plausible.
 export function blendScenario(scenarioKey) {
   const full = DEFAULTS[scenarioKey];
   if (!full) return null;
-  // Base and non-bear/bull scenarios load at exact values
-  if (scenarioKey !== "bear" && scenarioKey !== "bull") return { ...full };
-  const base = DEFAULTS.base;
-  const blended = {};
-  for (const k of Object.keys(full)) {
-    if (NO_BLEND_KEYS.has(k)) {
-      blended[k] = full[k];
-    } else if (typeof full[k] === "number" && typeof base[k] === "number") {
-      // Blend: full + BLEND_WEIGHT * (base - full) = lerp(full, base, BLEND_WEIGHT)
-      blended[k] = full[k] + BLEND_WEIGHT * (base[k] - full[k]);
-    } else {
-      blended[k] = full[k];
-    }
-  }
-  return blended;
+  return { ...full };
 }
 
-// ─── Slider Reference Markers (bear/base/bull) ─────────────────────────────
+// ─── Slider Reference Markers (downside/base/upside extremes) ───────────────
+// These show the full range each variable can take across themed scenarios.
+// "down" = worst themed value, "up" = best themed value. The markers help users
+// see where each slider sits relative to scenario boundaries.
 export const MARKERS = {
   overheadBase: { bear: 55, base: 45, bull: 35 },
   // NOTE: goesStartUtil color mapping should be INVERTED in the UI (red=high, green=low)
