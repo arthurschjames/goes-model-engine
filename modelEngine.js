@@ -114,6 +114,7 @@ const OVERRIDES = {
     distOpCostPct: 0.67, distIntermediatePct: 0.10,
     ramp: [0, 0.25, 0.60, 0.90], greenfieldCapex: 275,
     entryMultiple: 9.0, workingCapital: 110, pensionLiability: 400,
+    nwcPctRevenue: 0.18,
     doeGrant: false, ltv: 0.45, costOfDebt: 0.08,
     exitMultiple: 9, waccRate: 0.10,
     cpiRate: 0.035, txPriceEscalation: 0.02, nonGoesEscalation: 0.015, terminalGrowth: 0.02,
@@ -133,7 +134,7 @@ const OVERRIDES = {
     distOpCostPct: 0.52, distIntermediatePct: 0.06,
     greenfieldCapex: 375, internalizeIntermediate: true,
     txNonCoreRevenue: 50, txNonCoreMargin: 0.25,
-    entryMultiple: 7.0, ltv: 0.60, costOfDebt: 0.065,
+    entryMultiple: 7.0, nwcPctRevenue: 0.12, ltv: 0.60, costOfDebt: 0.065,
     exitMultiple: 16, waccRate: 0.085,
     cpiRate: 0.020, txPriceEscalation: 0.06, nonGoesEscalation: 0.025, terminalGrowth: 0.03,
     riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
@@ -248,6 +249,7 @@ export const MARKERS = {
   riskFreeRate: { bear: 0.045, base: 0.0405, bull: 0.035 },
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
   sizePremium: { bear: 0.025, base: 0.02, bull: 0.015 },
+  nwcPctRevenue: { bear: 0.18, base: 0.15, bull: 0.12 },
   waccRate: { bear: 0.12, base: 0.09, bull: 0.08 },
 };
 
@@ -385,7 +387,7 @@ export function runModel(inputs) {
   // ── Year-by-year projections ──
   const years = [];
   let cumUFCF = 0;
-  let prevNWC = 0; // NWC from prior year — delta flows through FCF
+  let prevNWC = workingCapital; // Initialize to closing NWC so Y1 deltaNWC only captures incremental change
   let debtBal = debtInitial; // Remaining debt balance (decreases with amort + sweep)
 
   for (let y = 0; y <= holdPeriod; y++) {
