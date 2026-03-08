@@ -58,7 +58,7 @@ const BASE = {
   goesPrice: 5600, duopolyImpact: 0.17,
   goesProductionCost: 2800, nipponYear: 5, dodOn: true, dodRenewal: true,
   doeOn: false, doeYear: 1,
-  goesPriceInflation: 0.025,
+  goesPriceInflation: 0.035,
   overheadBase: 45,
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business — $500M MPT company acquisition
@@ -81,7 +81,7 @@ const BASE = {
   // Returns
   exitMultiple: 12, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
   // Growth & Inflation
-  cpiRate: 0.025, txPriceEscalation: 0.04, terminalGrowth: 0.025,
+  cpiRate: 0.025, txPriceEscalation: 0.07, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
@@ -126,9 +126,9 @@ const OVERRIDES = {
   weakMkt: {
     label: "Weak Market",
     goesPrice: 5000, duopolyImpact: 0.22, nipponYear: 4,
-    goesPriceInflation: 0.01, dodRenewal: false,
+    goesPriceInflation: 0.02, dodRenewal: false,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
-    mpASP: 750000, distASP: 18000, txPriceEscalation: 0.02,
+    mpASP: 750000, distASP: 18000, txPriceEscalation: 0.04,
     txBaseEBITDAMargin: 0.20,
   },
 
@@ -166,9 +166,9 @@ const OVERRIDES = {
   strongMkt: {
     label: "Strong Market",
     goesPrice: 6500, duopolyImpact: 0.12, nipponYear: 7,
-    goesPriceInflation: 0.04, doeOn: true, doeYear: 2,
+    goesPriceInflation: 0.05, doeOn: true, doeYear: 2,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
-    mpASP: 1100000, distASP: 28000, txPriceEscalation: 0.06,
+    mpASP: 1100000, distASP: 28000, txPriceEscalation: 0.10,
     txBaseEBITDAMargin: 0.32,
   },
 
@@ -302,8 +302,9 @@ export const MARKERS = {
   butlerMaintCapex: { bear: 50, base: 40, bull: 35 },
   txMaintCapex: { bear: 35, base: 25, bull: 15 },
   pensionLiability: { bear: 400, base: 0, bull: 0 },
+  goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
-  txPriceEscalation: { bear: 0.02, base: 0.04, bull: 0.06 },
+  txPriceEscalation: { bear: 0.04, base: 0.07, bull: 0.10 },
   txBaseEBITDAMargin: { bear: 0.20, base: 0.25, bull: 0.32 },
   terminalGrowth: { bear: 0.02, base: 0.025, bull: 0.03 },
   riskFreeRate: { bear: 0.045, base: 0.041, bull: 0.035 },
