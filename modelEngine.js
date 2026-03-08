@@ -63,7 +63,13 @@ const BASE = {
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business — $500M MPT company acquisition
   txExistEnabled: true, txExistStartYear: 1,
-  txBaseRevenue: 500, txBaseEBITDAMargin: 0.125, txBaseGOESDemand: 8000,
+  txBaseRevenue: 500, txBaseEBITDAMargin: 0.125,
+  // GOES demand mode: "intensity" derives tons from revenue × ratio;
+  // "units" uses explicit unit count × GOES/unit (mirrors greenfield approach)
+  txDemandMode: "intensity",
+  txGOESIntensity: 16,       // tons per $M revenue (range ~5-25; VTC ~10, Delta Star ~17)
+  txExistUnits: 0,           // units/yr (detailed "units" mode only)
+  txExistGOESPerUnit: 14,    // tons GOES per unit (detailed "units" mode only)
   txAcqMultiple: 8, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
   // TX Greenfield — capacity expansion
   txGreenfieldEnabled: true, txGfStartYear: 2,
@@ -130,7 +136,7 @@ const OVERRIDES = {
     goesPriceInflation: 0.02, dodRenewal: false,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
     // TX existing — weaker margins, lower demand in soft market
-    txBaseRevenue: 400, txBaseEBITDAMargin: 0.10, txBaseGOESDemand: 6000,
+    txBaseRevenue: 400, txBaseEBITDAMargin: 0.10, txGOESIntensity: 15,
     txAcqNonCoreRevenue: 35, txAcqNonCoreMargin: 0.15,
     // TX greenfield — lower ASPs, delayed start due to uncertain demand
     txGfStartYear: 3, gfRampYears: 5,
@@ -181,7 +187,7 @@ const OVERRIDES = {
     goesPriceInflation: 0.05, doeOn: true, doeYear: 2,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
     // TX existing — strong backlog, higher margins from electrification boom
-    txBaseRevenue: 600, txBaseEBITDAMargin: 0.15, txBaseGOESDemand: 10000,
+    txBaseRevenue: 600, txBaseEBITDAMargin: 0.15, txGOESIntensity: 17,
     txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.22,
     // TX greenfield — early start, strong ASPs, larger scale
     txGfStartYear: 1, gfRampYears: 3,
@@ -233,7 +239,7 @@ const OVERRIDES = {
     label: "VTC Acquisition",
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
     txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: false,
-    txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 40000,
+    txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txGOESIntensity: 10,
     txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
     workingCapital: 200, exitMultiple: 14, txMaintCapex: 60,
@@ -242,7 +248,7 @@ const OVERRIDES = {
     label: "Delta Star",
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
     txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: true, txGfStartYear: 2,
-    txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txBaseGOESDemand: 5000,
+    txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txGOESIntensity: 17,
     txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
     exitMultiple: 13, txMaintCapex: 20,
@@ -330,7 +336,7 @@ export const MARKERS = {
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
   txBaseEBITDAMargin: { bear: 0.10, base: 0.125, bull: 0.15 },
-  txBaseGOESDemand: { bear: 6000, base: 8000, bull: 10000 },
+  txGOESIntensity: { bear: 15, base: 16, bull: 17 },
   txAcqMultiple: { bear: 10, base: 8, bull: 6 },
   txAcqNonCoreRevenue: { bear: 35, base: 50, bull: 75 },
   txAcqNonCoreMargin: { bear: 0.15, base: 0.20, bull: 0.22 },
@@ -374,7 +380,8 @@ export function runModel(inputs) {
     nipponYear, dodOn, dodRenewal, doeOn, doeYear,
     goesPriceInflation, overheadPct,
     nonGoesRevenue, nonGoesMargin,
-    txExistEnabled, txExistStartYear, txBaseRevenue, txBaseEBITDAMargin, txBaseGOESDemand,
+    txExistEnabled, txExistStartYear, txBaseRevenue, txBaseEBITDAMargin,
+    txDemandMode, txGOESIntensity, txExistUnits, txExistGOESPerUnit,
     txAcqMultiple, txAcqNonCoreRevenue, txAcqNonCoreMargin,
     txGreenfieldEnabled, txGfStartYear,
     mpUnits, goesPerMP, mpASP,
@@ -410,6 +417,13 @@ export function runModel(inputs) {
   // Effective TX segment enables
   const txExistActive = txExistEnabled !== false && txBaseRevenue > 0;
   const txGfActive = txGreenfieldEnabled !== false;
+
+  // Derive effective GOES demand for existing TX business
+  // "intensity" mode: demand = revenue × intensity ratio (tons per $M)
+  // "units" mode: demand = units/yr × GOES tons per unit (mirrors greenfield)
+  const txBaseGOESDemand = txDemandMode === "units"
+    ? txExistUnits * txExistGOESPerUnit
+    : txBaseRevenue * txGOESIntensity;
 
   // Compute TX acquisition price from EBITDA multiple
   const txAcqPrice = txExistActive ? Math.round(txAcqMultiple * txBaseRevenue * txBaseEBITDAMargin) : 0;
@@ -486,6 +500,11 @@ export function runModel(inputs) {
     const txDemand = (txGfActive ? mpUnits * goesPerMP + distUnits * goesPerDist : 0) + (txExistActive ? txBaseGOESDemand : 0);
     const captiveDemand = txDemand * captivePct;
     if (captiveDemand > spare * 1.05) warnings.push(`Captive GOES demand (${fmt(Math.round(captiveDemand))}t) exceeds spare capacity (${fmt(Math.round(spare))}t) — will be capped.`);
+  }
+  // GOES intensity sanity check
+  if (txExistActive && txDemandMode === "intensity") {
+    if (txGOESIntensity < 3) warnings.push(`GOES intensity (${txGOESIntensity} t/$M) is unusually low — implies minimal GOES usage relative to revenue.`);
+    if (txGOESIntensity > 30) warnings.push(`GOES intensity (${txGOESIntensity} t/$M) is unusually high — verify assumption.`);
   }
   if (exitMultiple < entryMultiple * 0.5) warnings.push("Exit multiple is less than half the entry multiple — likely negative returns.");
   if (exitMultiple > entryMultiple * 1.5) warnings.push(`Exit multiple (${exitMultiple.toFixed(1)}x) is >1.5× entry (${entryMultiple.toFixed(1)}x) — optimistic assumption.`);
@@ -756,6 +775,7 @@ export function runModel(inputs) {
     tvExitMult, implM, wacc, ke, kdAfterTax, termUFCF,
     greenfieldCapex: effGfCapex, workingCapital, pensionLiability, goesStartUtil, goesTargetUtil, goesRampYears,
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
+    txBaseGOESDemand, // derived demand (for display in sidebar)
     warnings,
     // Backward compat aliases
     acqPrice: butlerAcqPrice, waccRate: wacc, tvDCF: tvGordon,
