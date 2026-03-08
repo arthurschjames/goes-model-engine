@@ -39,11 +39,11 @@ export const DOE_CAPACITY = 25000;
 export const DOE_TARGET_SAVINGS = 80; // $M/yr at full NAMEPLATE — $80M / 180Kt ≈ $444/ton
 export const DOE_SAVINGS_PER_TON = DOE_TARGET_SAVINGS * 1e6 / NAMEPLATE; // ~$444.44/ton
 export const DOE_RAMP_YEARS = 2; // linear ramp from doeYear over 2 years
-export const OVERHEAD_BASE = 30; // $M — legacy constant, now an input (overheadBase)
+// OVERHEAD_BASE removed — overhead is now overheadPct (% of revenue)
 export const FIXED_COST_SHARE = 0.35; // ~35% of production cost is fixed (labor, maintenance, facility)
 export const TAX_RATE = 0.25;
 export const DOE_GRANT_AMOUNT = 75; // $M
-export const INTERNALIZE_FACTOR = 0.40;
+export const INTERNALIZE_FACTOR_DEFAULT = 0.50; // configurable via internalizeFactor input
 export const DUOPOLY_TRANSITION_YEARS = 4; // Nippon ramps over 4 years, gradually compressing prices
 
 // ─── Info Tooltips (re-exported from infoTooltips.js) ─────────────────────
@@ -59,7 +59,7 @@ const BASE = {
   goesProductionCost: 2800, nipponYear: 5, dodOn: true, dodRenewal: true,
   doeOn: false, doeYear: 1,
   goesPriceInflation: 0.035,
-  overheadBase: 45,
+  overheadPct: 0.07, // SGA/overhead as % of Steel Mill revenue (replaces fixed $M)
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business — $500M MPT company acquisition
   txExistEnabled: true, txExistStartYear: 1,
@@ -71,7 +71,8 @@ const BASE = {
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
   distOpCostPct: 0.61, distIntermediatePct: 0.08,
-  ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 150, internalizeIntermediate: false,
+  ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 150,
+  internalizeIntermediate: false, internalizeFactor: 0.50, // in-house cost as fraction of outsourced (lower = more savings)
   // TX GOES Sourcing
   captivePct: 1.00,
   // Transformer Non-Core (removed — greenfield non-core no longer modeled)
@@ -143,7 +144,7 @@ const OVERRIDES = {
   execRisk: {
     label: "Execution Risk",
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
-    goesProductionCost: 3200, overheadBase: 55,
+    goesProductionCost: 3200, overheadPct: 0.09,
     butlerMaintCapex: 50,
     // TX existing — delayed integration, slower start
     txExistStartYear: 2,
@@ -194,7 +195,7 @@ const OVERRIDES = {
   opsExcel: {
     label: "Ops Excellence",
     goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
-    goesProductionCost: 2400, overheadBase: 35,
+    goesProductionCost: 2400, overheadPct: 0.05,
     butlerMaintCapex: 35,
     // TX greenfield — accelerated build, low costs, fast ramp
     txGfStartYear: 1, gfRampYears: 3,
@@ -292,7 +293,7 @@ export function blendScenario(scenarioKey) {
 // "down" = worst themed value, "up" = best themed value. The markers help users
 // see where each slider sits relative to scenario boundaries.
 export const MARKERS = {
-  overheadBase: { bear: 55, base: 45, bull: 35 },
+  overheadPct: { bear: 0.09, base: 0.07, bull: 0.05 },
   // NOTE: goesStartUtil color mapping should be INVERTED in the UI (red=high, green=low)
   // because lower starting utilization means cheaper entry price → better IRR.
   goesStartUtil: { bear: 0.60, base: 0.70, bull: 0.85 },
@@ -371,7 +372,7 @@ export function runModel(inputs) {
   const {
     goesProductionCost,
     nipponYear, dodOn, dodRenewal, doeOn, doeYear,
-    goesPriceInflation, overheadBase,
+    goesPriceInflation, overheadPct,
     nonGoesRevenue, nonGoesMargin,
     txExistEnabled, txExistStartYear, txBaseRevenue, txBaseEBITDAMargin, txBaseGOESDemand,
     txAcqMultiple, txAcqNonCoreRevenue, txAcqNonCoreMargin,
@@ -400,8 +401,9 @@ export function runModel(inputs) {
   const goesPostDuopolyPrice = goesPrice * (1 - duopolyImpact);
 
   // Operating cost with internalize savings
-  const mpIntermSavings = internalizeIntermediate ? mpIntermediatePct * (1 - INTERNALIZE_FACTOR) : 0;
-  const distIntermSavings = internalizeIntermediate ? distIntermediatePct * (1 - INTERNALIZE_FACTOR) : 0;
+  const intFactor = p.internalizeFactor ?? INTERNALIZE_FACTOR_DEFAULT;
+  const mpIntermSavings = internalizeIntermediate ? mpIntermediatePct * (1 - intFactor) : 0;
+  const distIntermSavings = internalizeIntermediate ? distIntermediatePct * (1 - intFactor) : 0;
   const mpEffOpCostPct = mpOpCostPct - mpIntermSavings;
   const distEffOpCostPct = distOpCostPct - distIntermSavings;
 
@@ -452,7 +454,8 @@ export function runModel(inputs) {
   const y1GoesCOGS = (y1Prod * y1PC) / 1e6;
   const y1GoesGP = y1GoesRev - y1GoesCOGS;
   const y1NonGoesGP = nonGoesRevenue * nonGoesMargin;
-  const y1ButlerEBITDA = y1GoesGP + y1NonGoesGP - overheadBase;
+  const y1SegRev = y1GoesRev + nonGoesRevenue;
+  const y1ButlerEBITDA = y1GoesGP + y1NonGoesGP - (y1SegRev * overheadPct);
 
   // ── Sources & Uses ── (Transformer acq/capex zeroed if segment disabled)
   const butlerAcqPrice = Math.round(entryMultiple * Math.max(y1ButlerEBITDA, 50));
@@ -485,7 +488,10 @@ export function runModel(inputs) {
     if (captiveDemand > spare * 1.05) warnings.push(`Captive GOES demand (${fmt(Math.round(captiveDemand))}t) exceeds spare capacity (${fmt(Math.round(spare))}t) — will be capped.`);
   }
   if (exitMultiple < entryMultiple * 0.5) warnings.push("Exit multiple is less than half the entry multiple — likely negative returns.");
+  if (exitMultiple > entryMultiple * 1.5) warnings.push(`Exit multiple (${exitMultiple.toFixed(1)}x) is >1.5× entry (${entryMultiple.toFixed(1)}x) — optimistic assumption.`);
   if (wacc <= terminalGrowth) warnings.push("WACC ≤ terminal growth — Gordon Growth terminal value is undefined.");
+  if (txGfActive && greenfieldCapex > 0 && mpUnits === 0 && distUnits === 0) warnings.push("Greenfield capex allocated but no transformer units specified.");
+  if (txPriceEscalation > cpiRate * 3) warnings.push(`Transformer price escalation (${fmtPct(txPriceEscalation)}) significantly exceeds CPI (${fmtPct(cpiRate)}) — verify long-term sustainability.`);
 
   // ── Year-by-year projections ──
   const years = [];
@@ -563,8 +569,8 @@ export function runModel(inputs) {
     const nonGoesRevY = nonGoesRevenue * nonGoesEsc;
     const nonGoesGP = nonGoesRevY * nonGoesMargin;
 
-    // GOES segment EBITDA
-    const overheadY = overheadBase * cpiEsc;
+    // GOES segment EBITDA — overhead as % of Steel Mill segment revenue
+    const overheadY = (goesExtRev + nonGoesRevY) * overheadPct;
     const goesEBITDA = goesGP + nonGoesGP - overheadY;
     const goesSegRev = goesExtRev + nonGoesRevY;
     const goesMargin = goesSegRev > 0 ? goesEBITDA / goesSegRev : 0;
