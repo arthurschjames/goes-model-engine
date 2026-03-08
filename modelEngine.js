@@ -61,22 +61,22 @@ const BASE = {
   goesPriceInflation: 0.025,
   overheadBase: 45,
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
-  // TX Existing Business
-  txExistEnabled: false, txExistStartYear: 1,
-  txBaseRevenue: 0, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 0,
-  txAcqMultiple: 10, txAcqNonCoreRevenue: 0, txAcqNonCoreMargin: 0.15,
-  // TX Greenfield
-  txGreenfieldEnabled: false, txGfStartYear: 2,
-  mpUnits: 300, goesPerMP: 14, mpASP: 900000,
+  // TX Existing Business — $500M MPT company acquisition
+  txExistEnabled: true, txExistStartYear: 1,
+  txBaseRevenue: 500, txBaseEBITDAMargin: 0.125, txBaseGOESDemand: 8000,
+  txAcqMultiple: 8, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
+  // TX Greenfield — capacity expansion
+  txGreenfieldEnabled: true, txGfStartYear: 3,
+  mpUnits: 150, goesPerMP: 14, mpASP: 900000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
   distOpCostPct: 0.61, distIntermediatePct: 0.08,
-  ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 225, internalizeIntermediate: false,
+  ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 150, internalizeIntermediate: false,
   // TX GOES Sourcing
   captivePct: 1.00,
   // Transformer Non-Core (removed — greenfield non-core no longer modeled)
   // Capital Structure
-  entryMultiple: 8.0, workingCapital: 100, pensionLiability: 0, txnFees: 0.02,
+  entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
   exitMultiple: 12, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
@@ -90,7 +90,7 @@ const BASE = {
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
   // Sustaining Capex
-  butlerMaintCapex: 40, txMaintCapex: 15,
+  butlerMaintCapex: 40, txMaintCapex: 25,
   // Depreciation — step-up basis from acquisition
   acqDepreciablePct: 0.80, // % of acquisition price allocated to depreciable assets (PP&E + goodwill/intangibles; excludes land ~5%, NWC modeled separately)
   acqDepLife: 15, // Blended straight-line life (PP&E 10-20yr, goodwill/intangibles 15yr per §197)
@@ -140,7 +140,7 @@ const OVERRIDES = {
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
     goesProductionCost: 3200, overheadBase: 55,
     butlerMaintCapex: 50,
-    ramp: [0, 0.20, 0.50, 0.80], greenfieldCapex: 275,
+    ramp: [0, 0.20, 0.50, 0.80], greenfieldCapex: 200,
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distOpCostPct: 0.67, distIntermediatePct: 0.10,
     doeYear: 3,
@@ -182,7 +182,7 @@ const OVERRIDES = {
     butlerMaintCapex: 35,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
     distOpCostPct: 0.52, distIntermediatePct: 0.06,
-    greenfieldCapex: 175, internalizeIntermediate: true,
+    greenfieldCapex: 100, internalizeIntermediate: true,
     doeOn: true, doeYear: 1,
     nwcPctRevenue: 0.12,
     cpiRate: 0.020,
@@ -294,13 +294,13 @@ export const MARKERS = {
   distOpCostPct: { bear: 0.67, base: 0.61, bull: 0.52 },
   captivePct: { bear: 0.50, base: 1.00, bull: 1.00 },
   entryMultiple: { bear: 9, base: 8, bull: 7 },
-  greenfieldCapex: { bear: 275, base: 225, bull: 175 },
+  greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
   exitMultiple: { bear: 9, base: 12, bull: 16 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
   butlerMaintCapex: { bear: 50, base: 40, bull: 35 },
-  txMaintCapex: { bear: 20, base: 15, bull: 10 },
+  txMaintCapex: { bear: 35, base: 25, bull: 15 },
   pensionLiability: { bear: 400, base: 0, bull: 0 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
   txPriceEscalation: { bear: 0.02, base: 0.04, bull: 0.06 },
