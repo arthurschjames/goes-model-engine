@@ -62,11 +62,11 @@ const BASE = {
   overheadBase: 45,
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business
-  txExistEnabled: false,
+  txExistEnabled: false, txExistStartYear: 1,
   txBaseRevenue: 0, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 0,
   txAcqMultiple: 10, txAcqNonCoreRevenue: 0, txAcqNonCoreMargin: 0.15,
   // TX Greenfield
-  txGreenfieldEnabled: false,
+  txGreenfieldEnabled: false, txGfStartYear: 2,
   mpUnits: 300, goesPerMP: 14, mpASP: 900000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
@@ -291,9 +291,9 @@ export function runModel(inputs) {
     nipponYear, dodOn, dodRenewal, doeOn, doeYear,
     goesPriceInflation, overheadBase,
     nonGoesRevenue, nonGoesMargin,
-    txExistEnabled, txBaseRevenue, txBaseEBITDAMargin, txBaseGOESDemand,
+    txExistEnabled, txExistStartYear, txBaseRevenue, txBaseEBITDAMargin, txBaseGOESDemand,
     txAcqMultiple, txAcqNonCoreRevenue, txAcqNonCoreMargin,
-    txGreenfieldEnabled,
+    txGreenfieldEnabled, txGfStartYear,
     mpUnits, goesPerMP, mpASP,
     mpOpCostPct, mpIntermediatePct,
     distUnits, goesPerDist, distASP,
@@ -330,13 +330,15 @@ export function runModel(inputs) {
   // Compute TX acquisition price from EBITDA multiple
   const txAcqPrice = txExistActive ? Math.round(txAcqMultiple * txBaseRevenue * txBaseEBITDAMargin) : 0;
 
-  // Compute linear ramp from gfRampYears (replaces per-year ramp array for greenfield)
+  // Compute linear ramp from gfRampYears, relative to greenfield start year
   const computeRamp = (y) => {
+    const yRel = y - (txGfStartYear || 1) + 1; // years since greenfield start
+    if (yRel < 1) return 0;
     // If explicit ramp array exists and has entries, use it for backwards compat
-    if (ramp && ramp.length > 0 && y <= ramp.length) return ramp[Math.min(y - 1, ramp.length - 1)];
+    if (ramp && ramp.length > 0 && yRel <= ramp.length) return ramp[Math.min(yRel - 1, ramp.length - 1)];
     // Otherwise use linear ramp over gfRampYears
     if (!gfRampYears || gfRampYears <= 0) return 1;
-    return Math.min(1, (y - 1) / gfRampYears);
+    return Math.min(1, (yRel - 1) / gfRampYears);
   };
 
   // ── WACC ──
@@ -451,11 +453,13 @@ export function runModel(inputs) {
     const dodActive = dodOn && (y <= 5 || dodRenewal);
     const dodTons = dodActive ? DOD_TONS : 0;
 
-    // Transformer GOES demand (respects enable toggles)
-    const mpUnitsY = txGfActive ? mpUnits * rp : 0;
-    const distUnitsY = txGfActive ? distUnits * rp : 0;
+    // Transformer GOES demand (respects enable toggles + start years)
+    const gfStarted = txGfActive && y >= txGfStartYear;
+    const existStarted = txExistActive && y >= txExistStartYear;
+    const mpUnitsY = gfStarted ? mpUnits * rp : 0;
+    const distUnitsY = gfStarted ? distUnits * rp : 0;
     const gfGOESDemand = mpUnitsY * goesPerMP + distUnitsY * goesPerDist;
-    const existGOESDemand = txExistActive ? txBaseGOESDemand : 0;
+    const existGOESDemand = existStarted ? txBaseGOESDemand : 0;
     const totalTXGOESDemand = gfGOESDemand + existGOESDemand;
 
     // Captive allocation with constraint
@@ -483,8 +487,8 @@ export function runModel(inputs) {
     const goesSegRev = goesExtRev + nonGoesRevY;
     const goesMargin = goesSegRev > 0 ? goesEBITDA / goesSegRev : 0;
 
-    // ── Transformer Existing Business ── (zeroed if disabled)
-    const txExistRevY = txExistActive ? txBaseRevenue * txPriceEsc : 0;
+    // ── Transformer Existing Business ── (zeroed if disabled or before start year)
+    const txExistRevY = existStarted ? txBaseRevenue * txPriceEsc : 0;
     const txExistEBITDA_pre = txExistRevY * txBaseEBITDAMargin;
     // Captive advantage: proportional allocation
     const existFrac = totalTXGOESDemand > 0 ? existGOESDemand / totalTXGOESDemand : 0;
@@ -492,7 +496,7 @@ export function runModel(inputs) {
     const captiveAdvExist = existCaptive * (mktPrice - prodCost) / 1e6;
     const adjExistEBITDA = txExistEBITDA_pre + captiveAdvExist;
     // Existing non-core
-    const txAcqNCRevY = txExistActive ? txAcqNonCoreRevenue * txPriceEsc : 0;
+    const txAcqNCRevY = existStarted ? txAcqNonCoreRevenue * txPriceEsc : 0;
     const txAcqNCEBITDA = txAcqNCRevY * txAcqNonCoreMargin;
 
     // ── Transformer Greenfield ── (zeroed if disabled)
