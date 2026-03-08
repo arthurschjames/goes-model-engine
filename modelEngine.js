@@ -349,15 +349,15 @@ export function runModel(inputs) {
 
   // ── Y1 normalized Steel Mill EBITDA (for entry valuation) ──
   // Standalone means no captive — all production sold externally.
-  // Uses post-duopoly price to normalize for known duopoly compression,
-  // so that raising the forward pre-duopoly price assumption improves IRR
-  // (more revenue) without also inflating the acquisition cost.
+  // Entry valuation uses current (pre-duopoly) market price, since the seller
+  // prices the business on today's EBITDA. Duopoly risk is a future headwind
+  // that reduces IRR — if the buyer wants to discount for it at entry, they
+  // adjust the entry multiple. This ensures higher duopolyImpact → lower IRR.
   // Y1 EBITDA uses starting utilization (current operations) for entry valuation
   const y1DoeBlend = doeOn ? Math.min(1, Math.max(0, (1 - doeYear + 1) / DOE_RAMP_YEARS)) : 0;
   const y1Prod = NAMEPLATE * goesStartUtil;
-  // At starting utilization, effective cost = goesProductionCost (no adjustment).
   const y1PC = goesProductionCost - (DOE_SAVINGS_PER_TON * y1DoeBlend);
-  const y1MP = goesPostDuopolyPrice; // Entry valuation normalizes to post-duopoly
+  const y1MP = goesPrice; // Entry valuation at current market price
   const y1DodT = dodOn ? DOD_TONS : 0;
   const y1TPT = Math.max(0, y1Prod - y1DodT);
   const y1GoesRev = (y1TPT * y1MP + y1DodT * DOD_PRICE) / 1e6;
