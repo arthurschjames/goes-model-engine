@@ -79,7 +79,7 @@ const BASE = {
   entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
-  exitMultiple: 12, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
+  exitMultiple: 10.5, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
   // Growth & Inflation
   cpiRate: 0.025, txPriceEscalation: 0.07, terminalGrowth: 0.025,
   // WACC Build-up
@@ -317,7 +317,7 @@ export const MARKERS = {
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
-  exitMultiple: { bear: 9, base: 12, bull: 16 },
+  exitMultiple: { bear: 9, base: 10.5, bull: 16 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
   butlerMaintCapex: { bear: 50, base: 40, bull: 35 },
   txMaintCapex: { bear: 35, base: 25, bull: 15 },
