@@ -62,11 +62,11 @@ const BASE = {
   overheadBase: 45,
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business
-  txExistEnabled: true,
+  txExistEnabled: false,
   txBaseRevenue: 0, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 0,
   txAcqMultiple: 10, txAcqNonCoreRevenue: 0, txAcqNonCoreMargin: 0.15,
   // TX Greenfield
-  txGreenfieldEnabled: true,
+  txGreenfieldEnabled: false,
   mpUnits: 300, goesPerMP: 14, mpASP: 900000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
@@ -108,6 +108,7 @@ const OVERRIDES = {
     overheadBase: 55,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
     txBaseEBITDAMargin: 0.20,
+    txGreenfieldEnabled: true,
     mpUnits: 150, mpASP: 700000, goesPerMP: 16,
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distASP: 18000, goesPerDist: 0.9,
@@ -129,6 +130,7 @@ const OVERRIDES = {
     overheadBase: 35,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
     txBaseEBITDAMargin: 0.32,
+    txGreenfieldEnabled: true,
     mpUnits: 450, mpASP: 1100000, goesPerMP: 12,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
     distUnits: 2000, distASP: 28000, goesPerDist: 0.6,
@@ -152,6 +154,7 @@ const OVERRIDES = {
   vtc: {
     label: "VTC Acquisition",
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
+    txExistEnabled: true,
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 40000,
     txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
@@ -160,6 +163,7 @@ const OVERRIDES = {
   deltaStar: {
     label: "Delta Star",
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
+    txExistEnabled: true, txGreenfieldEnabled: true,
     txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txBaseGOESDemand: 5000,
     txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, greenfieldCapex: 175,
