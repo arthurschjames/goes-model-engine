@@ -83,7 +83,7 @@ const BASE = {
   // Growth & Inflation
   cpiRate: 0.025, txPriceEscalation: 0.04, terminalGrowth: 0.025,
   // WACC Build-up
-  riskFreeRate: 0.0405, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
+  riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
   nwcPctRevenue: 0.15, // NWC as % of revenue — delta flows through FCF each year
   // Debt Structure
@@ -306,7 +306,7 @@ export const MARKERS = {
   txPriceEscalation: { bear: 0.02, base: 0.04, bull: 0.06 },
   txBaseEBITDAMargin: { bear: 0.20, base: 0.25, bull: 0.32 },
   terminalGrowth: { bear: 0.02, base: 0.025, bull: 0.03 },
-  riskFreeRate: { bear: 0.045, base: 0.0405, bull: 0.035 },
+  riskFreeRate: { bear: 0.045, base: 0.041, bull: 0.035 },
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
   sizePremium: { bear: 0.025, base: 0.02, bull: 0.015 },
   nwcPctRevenue: { bear: 0.18, base: 0.15, bull: 0.12 },
