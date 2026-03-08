@@ -67,7 +67,7 @@ const BASE = {
   txAcqMultiple: 8, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
   // TX Greenfield — capacity expansion
   txGreenfieldEnabled: true, txGfStartYear: 2,
-  mpUnits: 150, goesPerMP: 14, mpASP: 900000,
+  mpUnits: 150, goesPerMP: 14, mpASP: 1100000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
   distOpCostPct: 0.61, distIntermediatePct: 0.08,
@@ -133,7 +133,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 35, txAcqNonCoreMargin: 0.15,
     // TX greenfield — lower ASPs, delayed start due to uncertain demand
     txGfStartYear: 3, gfRampYears: 5,
-    mpASP: 750000, distASP: 18000, txPriceEscalation: 0.04,
+    mpASP: 700000, distASP: 18000, txPriceEscalation: 0.04,
     mpUnits: 100,
   },
 
@@ -184,7 +184,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.22,
     // TX greenfield — early start, strong ASPs, larger scale
     txGfStartYear: 1, gfRampYears: 3,
-    mpASP: 1100000, distASP: 28000, txPriceEscalation: 0.10,
+    mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.10,
     mpUnits: 200,
   },
 
@@ -307,7 +307,7 @@ export const MARKERS = {
   nonGoesMargin: { bear: 0.12, base: 0.15, bull: 0.18 },
   mpUnits: { bear: 150, base: 300, bull: 450 },
   goesPerMP: { bear: 16, base: 14, bull: 12 },
-  mpASP: { bear: 700000, base: 900000, bull: 1100000 },
+  mpASP: { bear: 700000, base: 1100000, bull: 1500000 },
   mpOpCostPct: { bear: 0.62, base: 0.56, bull: 0.50 },
   distUnits: { bear: 0, base: 0, bull: 2000 },
   distASP: { bear: 18000, base: 22000, bull: 28000 },
