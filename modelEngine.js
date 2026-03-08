@@ -349,10 +349,10 @@ export function runModel(inputs) {
   const y1GoesCOGS = (y1Prod * y1PC) / 1e6;
   const y1GoesGP = y1GoesRev - y1GoesCOGS;
   const y1NonGoesGP = nonGoesRevenue * nonGoesMargin;
-  const y1Steel MillEBITDA = y1GoesGP + y1NonGoesGP - overheadBase;
+  const y1MillEBITDA = y1GoesGP + y1NonGoesGP - overheadBase;
 
   // ── Sources & Uses ── (TX acq/capex zeroed if segment disabled)
-  const millAcqPrice = Math.round(entryMultiple * Math.max(y1Steel MillEBITDA, 50));
+  const millAcqPrice = Math.round(entryMultiple * Math.max(y1MillEBITDA, 50));
   const effTxAcqPrice = txExistActive ? txAcqPrice : 0;
   const effGfCapex = txGfActive ? greenfieldCapex : 0;
   const txnFeesAmt = (millAcqPrice + effTxAcqPrice) * txnFees;
@@ -640,7 +640,7 @@ export function runModel(inputs) {
     years, stab, ti, millAcqPrice, txAcqPrice: effTxAcqPrice,
     debt: debtInitial, debtAtExit, eq, intAnn: debtInitial * costOfDebt,
     totalUses, doeGrantAmt, txnFeesAmt,
-    y1Steel MillEBITDA, uIRR, lIRR, realUIRR, realLIRR,
+    y1MillEBITDA, uIRR, lIRR, realUIRR, realLIRR,
     eqM, pb, tv, tE, chart,
     ev, eqVal, pvTV, pvFCFs, pvTVGordon, tvGordon, evGordon,
     tvExitMult, implM, wacc, ke, kdAfterTax, termUFCF,
