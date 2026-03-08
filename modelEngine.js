@@ -66,7 +66,7 @@ const BASE = {
   txBaseRevenue: 500, txBaseEBITDAMargin: 0.125, txBaseGOESDemand: 8000,
   txAcqMultiple: 8, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
   // TX Greenfield — capacity expansion
-  txGreenfieldEnabled: true, txGfStartYear: 3,
+  txGreenfieldEnabled: true, txGfStartYear: 2,
   mpUnits: 150, goesPerMP: 14, mpASP: 900000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
@@ -121,15 +121,20 @@ const OVERRIDES = {
   base: { label: "Base Case" },
 
   // ── Downside: Weak Market ──────────────────────────────────────────────────
-  // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue
+  // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue, TX margins
   // Unchanged: utilization ramp, production costs, deal structure, financing
   weakMkt: {
     label: "Weak Market",
     goesPrice: 5000, duopolyImpact: 0.22, nipponYear: 4,
     goesPriceInflation: 0.02, dodRenewal: false,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
+    // TX existing — weaker margins, lower demand in soft market
+    txBaseRevenue: 400, txBaseEBITDAMargin: 0.10, txBaseGOESDemand: 6000,
+    txAcqNonCoreRevenue: 35, txAcqNonCoreMargin: 0.15,
+    // TX greenfield — lower ASPs, delayed start due to uncertain demand
+    txGfStartYear: 3, gfRampYears: 5,
     mpASP: 750000, distASP: 18000, txPriceEscalation: 0.04,
-    txBaseEBITDAMargin: 0.20,
+    mpUnits: 100,
   },
 
   // ── Downside: Execution Risk ───────────────────────────────────────────────
@@ -140,6 +145,10 @@ const OVERRIDES = {
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
     goesProductionCost: 3200, overheadBase: 55,
     butlerMaintCapex: 50,
+    // TX existing — delayed integration, slower start
+    txExistStartYear: 2,
+    // TX greenfield — delayed, slow ramp, cost overruns
+    txGfStartYear: 3, gfRampYears: 5,
     ramp: [0, 0.20, 0.50, 0.80], greenfieldCapex: 200,
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distOpCostPct: 0.67, distIntermediatePct: 0.10,
@@ -149,27 +158,34 @@ const OVERRIDES = {
   },
 
   // ── Downside: Adverse Financing ────────────────────────────────────────────
-  // Stress: entry/exit multiples, cost of debt, leverage, pension
+  // Stress: entry/exit multiples, cost of debt, leverage, pension, acquisition pricing
   // Unchanged: operations, market pricing
   advFin: {
     label: "Adverse Financing",
     entryMultiple: 9.0, exitMultiple: 9, workingCapital: 110,
     pensionLiability: 400,
     ltv: 0.45, costOfDebt: 0.08,
+    // TX acquisition — overpay in competitive auction
+    txAcqMultiple: 10,
     waccRate: 0.10, terminalGrowth: 0.02,
     riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
   },
 
   // ── Upside: Strong Market ──────────────────────────────────────────────────
-  // Stress: GOES pricing up, competition delayed, DOE on, strong non-GOES
+  // Stress: GOES pricing up, competition delayed, DOE on, strong TX demand
   // Unchanged: utilization ramp, costs, deal structure
   strongMkt: {
     label: "Strong Market",
     goesPrice: 6500, duopolyImpact: 0.12, nipponYear: 7,
     goesPriceInflation: 0.05, doeOn: true, doeYear: 2,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
+    // TX existing — strong backlog, higher margins from electrification boom
+    txBaseRevenue: 600, txBaseEBITDAMargin: 0.15, txBaseGOESDemand: 10000,
+    txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.22,
+    // TX greenfield — early start, strong ASPs, larger scale
+    txGfStartYear: 1, gfRampYears: 3,
     mpASP: 1100000, distASP: 28000, txPriceEscalation: 0.10,
-    txBaseEBITDAMargin: 0.32,
+    mpUnits: 200,
   },
 
   // ── Upside: Operational Excellence ─────────────────────────────────────────
@@ -180,6 +196,8 @@ const OVERRIDES = {
     goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
     goesProductionCost: 2400, overheadBase: 35,
     butlerMaintCapex: 35,
+    // TX greenfield — accelerated build, low costs, fast ramp
+    txGfStartYear: 1, gfRampYears: 3,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
     distOpCostPct: 0.52, distIntermediatePct: 0.06,
     greenfieldCapex: 100, internalizeIntermediate: true,
@@ -189,12 +207,14 @@ const OVERRIDES = {
   },
 
   // ── Upside: Favorable Deal ─────────────────────────────────────────────────
-  // Stress: cheap entry, rich exit, good leverage terms
+  // Stress: cheap entry, rich exit, good leverage terms, bargain TX acquisition
   // Unchanged: operations, market pricing
   favDeal: {
     label: "Favorable Deal",
     entryMultiple: 7.0, exitMultiple: 16,
     ltv: 0.60, costOfDebt: 0.065,
+    // TX acquisition — bargain price in distressed / off-market deal
+    txAcqMultiple: 6,
     waccRate: 0.085, terminalGrowth: 0.03,
     riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
   },
@@ -211,7 +231,7 @@ const OVERRIDES = {
   vtc: {
     label: "VTC Acquisition",
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
-    txExistEnabled: true,
+    txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: false,
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 40000,
     txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
@@ -220,10 +240,10 @@ const OVERRIDES = {
   deltaStar: {
     label: "Delta Star",
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
-    txExistEnabled: true, txGreenfieldEnabled: true,
+    txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: true, txGfStartYear: 2,
     txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txBaseGOESDemand: 5000,
     txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
-    mpUnits: 150, greenfieldCapex: 175,
+    mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
     exitMultiple: 13, txMaintCapex: 20,
   },
 };
@@ -305,7 +325,15 @@ export const MARKERS = {
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
   txPriceEscalation: { bear: 0.04, base: 0.07, bull: 0.10 },
-  txBaseEBITDAMargin: { bear: 0.20, base: 0.25, bull: 0.32 },
+  txExistStartYear: { bear: 2, base: 1, bull: 1 },
+  txGfStartYear: { bear: 3, base: 2, bull: 1 },
+  txBaseRevenue: { bear: 400, base: 500, bull: 600 },
+  txBaseEBITDAMargin: { bear: 0.10, base: 0.125, bull: 0.15 },
+  txBaseGOESDemand: { bear: 6000, base: 8000, bull: 10000 },
+  txAcqMultiple: { bear: 10, base: 8, bull: 6 },
+  txAcqNonCoreRevenue: { bear: 35, base: 50, bull: 75 },
+  txAcqNonCoreMargin: { bear: 0.15, base: 0.20, bull: 0.22 },
+  gfRampYears: { bear: 5, base: 4, bull: 3 },
   terminalGrowth: { bear: 0.02, base: 0.025, bull: 0.03 },
   riskFreeRate: { bear: 0.045, base: 0.041, bull: 0.035 },
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
