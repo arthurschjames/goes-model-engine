@@ -54,35 +54,34 @@ export { INFO } from "./infoTooltips.js";
 // ─── Base Defaults (all inputs) ─────────────────────────────────────────────
 const BASE = {
   // Steel Mill — utilization ramp (start → target over rampYears)
-  goesStartUtil: 0.70, goesTargetUtil: 0.92, goesRampYears: 2,
+  goesStartUtil: 0.70, goesTargetUtil: 0.95, goesRampYears: 2,
   goesPrice: 5600, duopolyImpact: 0.17,
   goesProductionCost: 2800, nipponYear: 5, dodOn: true, dodRenewal: true,
-  doeOn: false, doeYear: 2, doeGrant: true,
+  doeOn: false, doeYear: 1,
   goesPriceInflation: 0.025,
   overheadBase: 45,
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business
   txExistEnabled: true,
-  txBaseRevenue: 0, txBaseEBITDAMargin: 0.22, txBaseGOESDemand: 0,
-  txAcqPrice: 0, txAcqNonCoreRevenue: 0, txAcqNonCoreMargin: 0.15,
+  txBaseRevenue: 0, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 0,
+  txAcqMultiple: 10, txAcqNonCoreRevenue: 0, txAcqNonCoreMargin: 0.15,
   // TX Greenfield
   txGreenfieldEnabled: true,
   mpUnits: 300, goesPerMP: 14, mpASP: 900000,
   mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
   distOpCostPct: 0.61, distIntermediatePct: 0.08,
-  ramp: [0, 0.30, 0.70, 1.0], greenfieldCapex: 225, internalizeIntermediate: false,
+  ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 225, internalizeIntermediate: false,
   // TX GOES Sourcing
   captivePct: 1.00,
-  // TX Non-Core
-  txNonCoreRevenue: 0, txNonCoreMargin: 0.20,
+  // Transformer Non-Core (removed — greenfield non-core no longer modeled)
   // Capital Structure
   entryMultiple: 8.0, workingCapital: 100, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
   exitMultiple: 12, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
   // Growth & Inflation
-  cpiRate: 0.025, txPriceEscalation: 0.04, nonGoesEscalation: 0.02, terminalGrowth: 0.025,
+  cpiRate: 0.025, txPriceEscalation: 0.04, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.0405, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
@@ -91,7 +90,7 @@ const BASE = {
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
   // Sustaining Capex
-  millMaintCapex: 40, txMaintCapex: 15,
+  butlerMaintCapex: 40, txMaintCapex: 15,
   // Depreciation — step-up basis from acquisition
   acqDepreciablePct: 0.80, // % of acquisition price allocated to depreciable assets (PP&E + goodwill/intangibles; excludes land ~5%, NWC modeled separately)
   acqDepLife: 15, // Blended straight-line life (PP&E 10-20yr, goodwill/intangibles 15yr per §197)
@@ -103,11 +102,12 @@ const OVERRIDES = {
   base: { label: "Base Case" },
   bear: {
     label: "Bear Case",
-    goesStartUtil: 0.60, goesTargetUtil: 0.80, goesRampYears: 5,
+    goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
     goesPrice: 5000, duopolyImpact: 0.22,
     goesProductionCost: 3200, goesPriceInflation: 0.01, nipponYear: 4, dodRenewal: false, doeYear: 3,
     overheadBase: 55,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
+    txBaseEBITDAMargin: 0.20,
     mpUnits: 150, mpASP: 700000, goesPerMP: 16,
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distASP: 18000, goesPerDist: 0.9,
@@ -115,19 +115,20 @@ const OVERRIDES = {
     ramp: [0, 0.25, 0.60, 0.90], greenfieldCapex: 275,
     entryMultiple: 9.0, workingCapital: 110, pensionLiability: 400,
     nwcPctRevenue: 0.18,
-    doeGrant: false, ltv: 0.45, costOfDebt: 0.08,
+    ltv: 0.45, costOfDebt: 0.08,
     exitMultiple: 9, waccRate: 0.10,
-    cpiRate: 0.035, txPriceEscalation: 0.02, nonGoesEscalation: 0.015, terminalGrowth: 0.02,
+    cpiRate: 0.035, txPriceEscalation: 0.02, terminalGrowth: 0.02,
     riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
-    millMaintCapex: 50,
+    butlerMaintCapex: 50,
   },
   bull: {
     label: "Bull Case",
-    goesStartUtil: 0.85, goesTargetUtil: 0.95, goesRampYears: 1,
+    goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
     goesPrice: 6500, duopolyImpact: 0.12,
     goesProductionCost: 2400, goesPriceInflation: 0.04, nipponYear: 7, doeOn: true, doeYear: 2,
     overheadBase: 35,
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
+    txBaseEBITDAMargin: 0.32,
     mpUnits: 450, mpASP: 1100000, goesPerMP: 12,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
     distUnits: 2000, distASP: 28000, goesPerDist: 0.6,
@@ -136,23 +137,23 @@ const OVERRIDES = {
     txNonCoreRevenue: 50, txNonCoreMargin: 0.25,
     entryMultiple: 7.0, nwcPctRevenue: 0.12, ltv: 0.60, costOfDebt: 0.065,
     exitMultiple: 16, waccRate: 0.085,
-    cpiRate: 0.020, txPriceEscalation: 0.06, nonGoesEscalation: 0.025, terminalGrowth: 0.03,
+    cpiRate: 0.020, txPriceEscalation: 0.06, terminalGrowth: 0.03,
     riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
-    millMaintCapex: 35, txMaintCapex: 20,
+    butlerMaintCapex: 35, txMaintCapex: 20,
   },
   goesOnly: {
     label: "GOES Only",
     txExistEnabled: false, txGreenfieldEnabled: false,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0, captivePct: 0,
-    txNonCoreRevenue: 0, txMaintCapex: 0,
-    workingCapital: 75, doeGrant: false, ltv: 0.50,
+    txMaintCapex: 0,
+    workingCapital: 75, ltv: 0.50,
     exitMultiple: 10, waccRate: 0.10,
   },
   vtc: {
     label: "VTC Acquisition",
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txBaseGOESDemand: 40000,
-    txAcqPrice: 3500, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
+    txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
     workingCapital: 200, exitMultiple: 14, txMaintCapex: 60,
   },
@@ -160,7 +161,7 @@ const OVERRIDES = {
     label: "Delta Star",
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
     txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txBaseGOESDemand: 5000,
-    txAcqPrice: 500, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
+    txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, greenfieldCapex: 175,
     exitMultiple: 13, txMaintCapex: 20,
   },
@@ -187,7 +188,7 @@ const BLEND_WEIGHT = 0.50; // fraction toward base (0 = full extreme, 1 = pure b
 
 // Keys that should NOT be blended (booleans, enums, arrays, labels)
 const NO_BLEND_KEYS = new Set([
-  "label", "custom", "dodOn", "dodRenewal", "doeOn", "doeGrant",
+  "label", "custom", "dodOn", "dodRenewal", "doeOn",
   "internalizeIntermediate", "txExistEnabled", "txGreenfieldEnabled",
   "ramp", "waccMode",
 ]);
@@ -215,14 +216,16 @@ export function blendScenario(scenarioKey) {
 // ─── Slider Reference Markers (bear/base/bull) ─────────────────────────────
 export const MARKERS = {
   overheadBase: { bear: 55, base: 45, bull: 35 },
+  // NOTE: goesStartUtil color mapping should be INVERTED in the UI (red=high, green=low)
+  // because lower starting utilization means cheaper entry price → better IRR.
   goesStartUtil: { bear: 0.60, base: 0.70, bull: 0.85 },
-  goesTargetUtil: { bear: 0.80, base: 0.92, bull: 0.95 },
+  goesTargetUtil: { bear: 0.85, base: 0.95, bull: 0.98 },
   goesRampYears: { bear: 5, base: 2, bull: 1 },
   goesPrice: { bear: 5000, base: 5600, bull: 6500 },
   duopolyImpact: { bear: 0.22, base: 0.17, bull: 0.12 },
   goesProductionCost: { bear: 3200, base: 2800, bull: 2400 },
   nipponYear: { bear: 4, base: 5, bull: 7 },
-  doeYear: { bear: 3, base: 2, bull: 2 },
+  doeYear: { bear: 3, base: 1, bull: 2 },
   nonGoesRevenue: { bear: 100, base: 120, bull: 150 },
   nonGoesMargin: { bear: 0.12, base: 0.15, bull: 0.18 },
   mpUnits: { bear: 150, base: 300, bull: 450 },
@@ -239,12 +242,12 @@ export const MARKERS = {
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
   exitMultiple: { bear: 9, base: 12, bull: 16 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
-  millMaintCapex: { bear: 50, base: 40, bull: 35 },
+  butlerMaintCapex: { bear: 50, base: 40, bull: 35 },
   txMaintCapex: { bear: 20, base: 15, bull: 10 },
   pensionLiability: { bear: 400, base: 0, bull: 0 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
   txPriceEscalation: { bear: 0.02, base: 0.04, bull: 0.06 },
-  nonGoesEscalation: { bear: 0.015, base: 0.02, bull: 0.025 },
+  txBaseEBITDAMargin: { bear: 0.20, base: 0.25, bull: 0.32 },
   terminalGrowth: { bear: 0.02, base: 0.025, bull: 0.03 },
   riskFreeRate: { bear: 0.045, base: 0.0405, bull: 0.035 },
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
@@ -259,7 +262,7 @@ export const MARKERS = {
  *
  * @param {Object} inputs - Model parameters (merged with BASE defaults).
  *   Key groups: Steel Mill (goesStartUtil, goesPrice, goesProductionCost, ...),
- *   TX Existing (txBaseRevenue, txBaseEBITDAMargin, ...), TX Greenfield (mpUnits,
+ *   Transformer Existing (txBaseRevenue, txBaseEBITDAMargin, ...), Transformer Greenfield (mpUnits,
  *   mpASP, ...), Capital Structure (entryMultiple, ltv, ...), Growth/Inflation
  *   (cpiRate, txPriceEscalation, ...), Returns (exitMultiple, holdPeriod, waccRate).
  *   See BASE object above for all ~60 parameters and their defaults.
@@ -274,31 +277,31 @@ export const MARKERS = {
  *   - implM: DCF implied exit multiple
  *   - pb: Payback period (years, null if >hold)
  *   - tv: Terminal value, ti: Total investment
- *   - millAcqPrice, txAcqPrice: Acquisition prices ($M)
+ *   - butlerAcqPrice, txAcqPrice: Acquisition prices ($M)
  *   - warnings[]: Array of warning strings for edge cases
  */
 export function runModel(inputs) {
   const p = { ...BASE, ...inputs };
   const {
     goesProductionCost,
-    nipponYear, dodOn, dodRenewal, doeOn, doeYear, doeGrant,
+    nipponYear, dodOn, dodRenewal, doeOn, doeYear,
     goesPriceInflation, overheadBase,
     nonGoesRevenue, nonGoesMargin,
     txExistEnabled, txBaseRevenue, txBaseEBITDAMargin, txBaseGOESDemand,
-    txAcqPrice, txAcqNonCoreRevenue, txAcqNonCoreMargin,
+    txAcqMultiple, txAcqNonCoreRevenue, txAcqNonCoreMargin,
     txGreenfieldEnabled,
     mpUnits, goesPerMP, mpASP,
     mpOpCostPct, mpIntermediatePct,
     distUnits, goesPerDist, distASP,
     distOpCostPct, distIntermediatePct,
-    ramp, greenfieldCapex, internalizeIntermediate,
-    captivePct, txNonCoreRevenue, txNonCoreMargin,
+    ramp, gfRampYears, greenfieldCapex, internalizeIntermediate,
+    captivePct,
     entryMultiple, workingCapital, pensionLiability, txnFees,
     ltv, costOfDebt,
     exitMultiple, holdPeriod, waccMode, waccRate,
-    cpiRate, txPriceEscalation, nonGoesEscalation, terminalGrowth,
+    cpiRate, txPriceEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, cashSweepPct, millMaintCapex, txMaintCapex,
+    nwcPctRevenue, debtAmortYears, cashSweepPct, butlerMaintCapex, txMaintCapex,
     acqDepreciablePct, acqDepLife, gfDepLife,
   } = p;
 
@@ -319,6 +322,18 @@ export function runModel(inputs) {
   // Effective TX segment enables
   const txExistActive = txExistEnabled !== false && txBaseRevenue > 0;
   const txGfActive = txGreenfieldEnabled !== false;
+
+  // Compute TX acquisition price from EBITDA multiple
+  const txAcqPrice = txExistActive ? Math.round(txAcqMultiple * txBaseRevenue * txBaseEBITDAMargin) : 0;
+
+  // Compute linear ramp from gfRampYears (replaces per-year ramp array for greenfield)
+  const computeRamp = (y) => {
+    // If explicit ramp array exists and has entries, use it for backwards compat
+    if (ramp && ramp.length > 0 && y <= ramp.length) return ramp[Math.min(y - 1, ramp.length - 1)];
+    // Otherwise use linear ramp over gfRampYears
+    if (!gfRampYears || gfRampYears <= 0) return 1;
+    return Math.min(1, (y - 1) / gfRampYears);
+  };
 
   // ── WACC ──
   let wacc, ke, kdAfterTax;
@@ -349,15 +364,15 @@ export function runModel(inputs) {
   const y1GoesCOGS = (y1Prod * y1PC) / 1e6;
   const y1GoesGP = y1GoesRev - y1GoesCOGS;
   const y1NonGoesGP = nonGoesRevenue * nonGoesMargin;
-  const y1MillEBITDA = y1GoesGP + y1NonGoesGP - overheadBase;
+  const y1ButlerEBITDA = y1GoesGP + y1NonGoesGP - overheadBase;
 
-  // ── Sources & Uses ── (TX acq/capex zeroed if segment disabled)
-  const millAcqPrice = Math.round(entryMultiple * Math.max(y1MillEBITDA, 50));
+  // ── Sources & Uses ── (Transformer acq/capex zeroed if segment disabled)
+  const butlerAcqPrice = Math.round(entryMultiple * Math.max(y1ButlerEBITDA, 50));
   const effTxAcqPrice = txExistActive ? txAcqPrice : 0;
   const effGfCapex = txGfActive ? greenfieldCapex : 0;
-  const txnFeesAmt = (millAcqPrice + effTxAcqPrice) * txnFees;
-  const totalUses = millAcqPrice + effTxAcqPrice + effGfCapex + workingCapital + pensionLiability + txnFeesAmt;
-  const doeGrantAmt = (doeOn && doeGrant) ? DOE_GRANT_AMOUNT : 0;
+  const txnFeesAmt = (butlerAcqPrice + effTxAcqPrice) * txnFees;
+  const totalUses = butlerAcqPrice + effTxAcqPrice + effGfCapex + workingCapital + pensionLiability + txnFeesAmt;
+  const doeGrantAmt = doeOn ? DOE_GRANT_AMOUNT : 0;
   const ti = totalUses - doeGrantAmt;
   const debtInitial = ti * ltv;
   const eq = ti - debtInitial;
@@ -396,14 +411,13 @@ export function runModel(inputs) {
       continue;
     }
 
-    // Ramp
-    const ri = Math.min(y - 1, ramp.length - 1);
-    const rp = ri < 0 ? 0 : ramp[ri];
+    // Ramp — uses linear ramp over gfRampYears (with fallback to explicit ramp array)
+    const rp = computeRamp(y);
 
     // Escalation factors: Y1=base, Y2=base*(1+r), etc.
     const cpiEsc = Math.pow(1 + cpiRate, y - 1);
     const txPriceEsc = Math.pow(1 + txPriceEscalation, y - 1);
-    const nonGoesEsc = Math.pow(1 + nonGoesEscalation, y - 1);
+    const nonGoesEsc = cpiEsc; // Non-GOES revenue tracks CPI automatically
 
     // DOE — linear ramp over DOE_RAMP_YEARS starting at doeYear
     const doeBlend = doeOn ? Math.min(1, Math.max(0, (y - doeYear + 1) / DOE_RAMP_YEARS)) : 0;
@@ -433,7 +447,7 @@ export function runModel(inputs) {
     const dodActive = dodOn && (y <= 5 || dodRenewal);
     const dodTons = dodActive ? DOD_TONS : 0;
 
-    // TX GOES demand (respects enable toggles)
+    // Transformer GOES demand (respects enable toggles)
     const mpUnitsY = txGfActive ? mpUnits * rp : 0;
     const distUnitsY = txGfActive ? distUnits * rp : 0;
     const gfGOESDemand = mpUnitsY * goesPerMP + distUnitsY * goesPerDist;
@@ -465,7 +479,7 @@ export function runModel(inputs) {
     const goesSegRev = goesExtRev + nonGoesRevY;
     const goesMargin = goesSegRev > 0 ? goesEBITDA / goesSegRev : 0;
 
-    // ── TX Existing Business ── (zeroed if disabled)
+    // ── Transformer Existing Business ── (zeroed if disabled)
     const txExistRevY = txExistActive ? txBaseRevenue * txPriceEsc : 0;
     const txExistEBITDA_pre = txExistRevY * txBaseEBITDAMargin;
     // Captive advantage: proportional allocation
@@ -477,7 +491,7 @@ export function runModel(inputs) {
     const txAcqNCRevY = txExistActive ? txAcqNonCoreRevenue * txPriceEsc : 0;
     const txAcqNCEBITDA = txAcqNCRevY * txAcqNonCoreMargin;
 
-    // ── TX Greenfield ── (zeroed if disabled)
+    // ── Transformer Greenfield ── (zeroed if disabled)
     const mpRevY = (mpUnitsY * mpASP * txPriceEsc) / 1e6;
     const distRevY = (distUnitsY * distASP * txPriceEsc) / 1e6;
     // GOES cost for greenfield
@@ -497,11 +511,11 @@ export function runModel(inputs) {
     // Greenfield captive advantage (display)
     const captiveAdvGF = gfCaptive * (mktPrice - prodCost) / 1e6;
 
-    // ── TX Non-Core (Greenfield) ──
-    const txNCRevY = txGfActive ? txNonCoreRevenue * rp * txPriceEsc : 0;
-    const txNCEBITDA = txNCRevY * txNonCoreMargin;
+    // ── Transformer Non-Core (Greenfield) — removed from model ──
+    const txNCRevY = 0;
+    const txNCEBITDA = 0;
 
-    // ── TX Segment Totals ──
+    // ── Transformer Segment Totals ──
     const txTotalRev = txExistRevY + txAcqNCRevY + gfRev + txNCRevY;
     const txTotalEBITDA = adjExistEBITDA + txAcqNCEBITDA + gfEBITDA + txNCEBITDA;
     const txMargin = txTotalRev > 0 ? txTotalEBITDA / txTotalRev : 0;
@@ -518,9 +532,9 @@ export function runModel(inputs) {
     prevNWC = nwc;
 
     // Capex, D&A, taxes, FCF
-    const mc = (millMaintCapex + txMaintCapex) * cpiEsc;
+    const mc = (butlerMaintCapex + txMaintCapex) * cpiEsc;
     // D&A: step-up depreciation on acquisition basis + greenfield capex + maintenance
-    const acqDA = (millAcqPrice + effTxAcqPrice) * acqDepreciablePct / acqDepLife;
+    const acqDA = (butlerAcqPrice + effTxAcqPrice) * acqDepreciablePct / acqDepLife;
     const gfDA = effGfCapex > 0 && gfDepLife > 0 ? effGfCapex / gfDepLife : 0;
     const maintDA = mc * 0.5;
     const da = acqDA + gfDA + maintDA;
@@ -637,10 +651,10 @@ export function runModel(inputs) {
   }));
 
   return {
-    years, stab, ti, millAcqPrice, txAcqPrice: effTxAcqPrice,
+    years, stab, ti, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
     debt: debtInitial, debtAtExit, eq, intAnn: debtInitial * costOfDebt,
     totalUses, doeGrantAmt, txnFeesAmt,
-    y1MillEBITDA, uIRR, lIRR, realUIRR, realLIRR,
+    y1ButlerEBITDA, uIRR, lIRR, realUIRR, realLIRR,
     eqM, pb, tv, tE, chart,
     ev, eqVal, pvTV, pvFCFs, pvTVGordon, tvGordon, evGordon,
     tvExitMult, implM, wacc, ke, kdAfterTax, termUFCF,
@@ -648,7 +662,7 @@ export function runModel(inputs) {
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
     warnings,
     // Backward compat aliases
-    acqPrice: millAcqPrice, waccRate: wacc, tvDCF: tvGordon,
+    acqPrice: butlerAcqPrice, waccRate: wacc, tvDCF: tvGordon,
   };
 }
 
