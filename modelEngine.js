@@ -86,7 +86,7 @@ const BASE = {
   entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
-  exitMultiple: 10.5, holdPeriod: 10, waccRate: 0.09, waccMode: "buildup",
+  exitMultiple: 10.5, holdPeriod: 10, waccRate: 0.082, waccMode: "manual",
   // Growth & Inflation
   cpiRate: 0.025, txPriceEscalation: 0.07, terminalGrowth: 0.025,
   // WACC Build-up
@@ -174,7 +174,7 @@ const OVERRIDES = {
     ltv: 0.45, costOfDebt: 0.08,
     // TX acquisition — overpay in competitive auction
     txAcqMultiple: 10,
-    waccRate: 0.10, terminalGrowth: 0.02,
+    waccRate: 0.106, terminalGrowth: 0.02,
     riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
   },
 
@@ -222,7 +222,7 @@ const OVERRIDES = {
     ltv: 0.60, costOfDebt: 0.065,
     // TX acquisition — bargain price in distressed / off-market deal
     txAcqMultiple: 6,
-    waccRate: 0.085, terminalGrowth: 0.03,
+    waccRate: 0.072, terminalGrowth: 0.03,
     riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
   },
 
@@ -233,7 +233,7 @@ const OVERRIDES = {
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0, captivePct: 0,
     txMaintCapex: 0,
     workingCapital: 75, ltv: 0.50,
-    exitMultiple: 10, waccRate: 0.10,
+    exitMultiple: 10, waccRate: 0.09,
   },
   vtc: {
     label: "VTC Acquisition",
