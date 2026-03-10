@@ -145,7 +145,9 @@ const BASE = {
   nwcStartPct: 0.15,   // NWC starting % of revenue (entry-implied level)
   nwcRampYears: 3,     // Years to linearly ramp from nwcStartPct → nwcPctRevenue
   // Debt Structure
-  debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
+  debtAmortYears: 7, // Maturity in years — 0 = interest-only bullet
+  debtAmortPct: 0.01, // Annual mandatory amortization as % of outstanding balance (PE standard: 1%)
+  minCashBalance: 25, // Minimum cash reserve ($M) before cash sweep applies
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
   ddtlCommitmentFee: 0.005, // 50bps commitment fee on undrawn DDTL balance
   // Cost Structure
@@ -407,6 +409,8 @@ export const MARKERS = {
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
+  debtAmortPct: { bear: 0.01, base: 0.01, bull: 0.05 },
+  minCashBalance: { bear: 50, base: 25, bull: 10 },
   ddtlCommitmentFee: { bear: 0.0075, base: 0.005, bull: 0.0025 },
   exitMultiple: { bear: 9, base: 10, bull: 13 },
   exitTxnCosts: { bear: 0.035, base: 0.025, bull: 0.015 },
@@ -487,7 +491,7 @@ export function runModel(inputs) {
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
     cpiRate, txPriceEscalation, txEscalationDecay, txCostEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
+    nwcPctRevenue, debtAmortYears, debtAmortPct, minCashBalance, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
     daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
     tariffRiskEnabled, tariffReductionPct, tariffRiskYear, tariffTransitionYears,
@@ -598,8 +602,8 @@ export function runModel(inputs) {
   // Debt sized on total lifetime investment (delayed-draw term loan for deferred needs)
   const debtInitial = ti * ltv;
   const eq = ti - debtInitial;
-  // Scheduled annual amortization (0 if interest-only)
-  const schedAmort = debtAmortYears > 0 ? debtInitial / debtAmortYears : 0;
+  // debtAmortPct-based amortization computed per year against BOY balance (see year loop)
+  // debtAmortYears is now maturity date for bullet payment
 
   // ── Input Validation ──
   const warnings = [];
@@ -898,10 +902,12 @@ export function runModel(inputs) {
       taxLevered = Math.max(0, (ebt - nolUsable) * TAX_RATE);
       nolBalance -= nolUsable;
     }
-    // Debt service: scheduled amortization + cash sweep
+    // Debt service: % of BOY balance amortization + cash sweep above min cash
+    const schedAmort = debtBal * debtAmortPct;
     const amort = Math.min(schedAmort, debtBal);
     const preSweepFCF = totalEBITDA - mc - taxLevered - intAnn - deltaNWC - amort;
-    const sweep = cashSweepPct > 0 ? Math.min(Math.max(0, preSweepFCF) * cashSweepPct, debtBal - amort) : 0;
+    const sweepable = Math.max(0, preSweepFCF - minCashBalance);
+    const sweep = cashSweepPct > 0 ? Math.min(sweepable * cashSweepPct, debtBal - amort) : 0;
     const totalPrincipal = amort + sweep;
     debtBal = Math.max(0, debtBal - totalPrincipal);
     const lfcf = totalEBITDA - mc - taxLevered - intAnn - totalPrincipal - deltaNWC;
@@ -911,6 +917,8 @@ export function runModel(inputs) {
     const cashOnCash = eq > 0 ? lfcf / eq : 0;
     const dpi = eq > 0 ? cumLFCF / eq : 0;
     const intCoverage = intAnn > 0 ? totalEBITDA / intAnn : null;
+    const leverageRatio = totalEBITDA > 0 ? debtBal / totalEBITDA : null;
+    const dscr = (intAnn + amort) > 0 ? (totalEBITDA - mc - taxLevered) / (intAnn + amort) : null;
 
     years.push({
       year: y, rp, duo, duoBlend, doeActive, doeBlend, dodActive, captiveCapped, utilY,
@@ -934,7 +942,7 @@ export function runModel(inputs) {
       totalRev, totalEBITDA, margin,
       capexDeploy,
       nwcPctY, nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, drawnBalance: debtBal, undrawnCommitment, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, nolBalance, nolBalanceUnlevered,
+      debtBal, drawnBalance: debtBal, undrawnCommitment, schedAmort, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, leverageRatio, dscr, nolBalance, nolBalanceUnlevered,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
