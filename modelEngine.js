@@ -619,6 +619,8 @@ export function runModel(inputs) {
   let cumLFCF = 0;
   let prevNWC = workingCapital; // Initialize to closing NWC so Y1 deltaNWC only captures incremental change
   let debtBal = debtInitial; // Remaining debt balance (decreases with amort + sweep)
+  let nolBalance = 0; // Net operating loss carryforward (levered, based on EBT)
+  let nolBalanceUnlevered = 0; // Net operating loss carryforward (unlevered, based on EBIT)
 
   for (let y = 0; y <= holdPeriod; y++) {
     if (y === 0) {
@@ -812,11 +814,28 @@ export function runModel(inputs) {
     const intAnn = debtBal * costOfDebt;
     const ebit = totalEBITDA - da - maintExpensed;
     // Unlevered tax (no interest deduction) — used for UFCF and DCF
-    const tax = Math.max(0, ebit * TAX_RATE);
+    // NOL carryforward per TCJA §172: post-2017 NOLs offset up to 80% of taxable income
+    let tax;
+    if (ebit < 0) {
+      nolBalanceUnlevered += Math.abs(ebit);
+      tax = 0;
+    } else {
+      const nolUsableUnlev = Math.min(nolBalanceUnlevered, ebit * 0.80);
+      tax = Math.max(0, (ebit - nolUsableUnlev) * TAX_RATE);
+      nolBalanceUnlevered -= nolUsableUnlev;
+    }
     const ufcf = totalEBITDA - mc - tax - deltaNWC;
     // Levered tax (after interest deduction) — used for LFCF
     const ebt = ebit - intAnn;
-    const taxLevered = Math.max(0, ebt * TAX_RATE);
+    let taxLevered;
+    if (ebt < 0) {
+      nolBalance += Math.abs(ebt);
+      taxLevered = 0;
+    } else {
+      const nolUsable = Math.min(nolBalance, ebt * 0.80);
+      taxLevered = Math.max(0, (ebt - nolUsable) * TAX_RATE);
+      nolBalance -= nolUsable;
+    }
     // Debt service: scheduled amortization + cash sweep
     const amort = Math.min(schedAmort, debtBal);
     const preSweepFCF = totalEBITDA - mc - taxLevered - intAnn - deltaNWC - amort;
@@ -853,7 +872,7 @@ export function runModel(inputs) {
       totalRev, totalEBITDA, margin,
       capexDeploy,
       nwcPctY, nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage,
+      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, nolBalance, nolBalanceUnlevered,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
@@ -1027,6 +1046,7 @@ function zeroYear() {
     "nwcPctY", "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
     "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
+    "nolBalance", "nolBalanceUnlevered",
   ];
   for (const k of numKeys) z[k] = 0;
   return z;
