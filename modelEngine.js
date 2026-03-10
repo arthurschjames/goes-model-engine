@@ -219,12 +219,12 @@ const OVERRIDES = {
   // Unchanged: operations, market pricing
   advFin: {
     label: "Adverse Financing",
-    entryMultiple: 9.0, exitMultiple: 9, workingCapital: 110,
+    entryMultiple: 9.0, exitMultiple: 7.5, workingCapital: 110,
     pensionLiability: 400,
-    ltv: 0.45, costOfDebt: 0.08,
+    ltv: 0.45, costOfDebt: 0.08, cashSweepPct: 0.50,
     // TX acquisition — overpay in competitive auction
     txAcqMultiple: 19,
-    waccRate: 0.106, terminalGrowth: 0.02,
+    waccRate: 0.108, terminalGrowth: 0.02,
     riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
   },
 
