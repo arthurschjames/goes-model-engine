@@ -286,9 +286,13 @@ const OVERRIDES = {
     label: "GOES Only",
     txExistEnabled: false, txGreenfieldEnabled: false,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0, captivePct: 0,
+    doeOn: false,                   // explicit: DOE grant excluded for conservative standalone underwriting
+    entryMultiple: 7.5,             // standalone steel comps (6-8x); no integration optionality premium
+    exitMultiple: 9.5,              // pure-play steel exit (8-10x); post-duopoly limits narrative
     maintCapexPct: 0.08, daPctRevenue: 0.13,
-    workingCapital: 75, ltv: 0.50,
-    exitMultiple: 10, waccRate: 0.09,
+    overheadPct: 0.08,              // higher standalone corporate costs without shared services
+    workingCapital: 100, ltv: 0.50, // WC raised from 75 to align with 15% ongoing NWC rate
+    waccRate: 0.095,                // +130bps vs base: leverage effect + concentration risk premium
   },
   vtc: {
     label: "VTC Acquisition",
