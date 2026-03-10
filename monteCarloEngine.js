@@ -349,7 +349,8 @@ export function runMonteCarlo(runModel, baseInputs, variableConfigs, n = 1000, o
   };
 
   // ── Probability of meeting thresholds ──
-  stats.probIRR = (threshold) => {
+  // Compute as a plain function (NOT attached to stats, which must be serializable via structured clone for Web Workers)
+  const probIRR = (threshold) => {
     const count = irrs.filter(v => v >= threshold).length;
     return count / irrs.length;
   };
@@ -421,6 +422,6 @@ export function runMonteCarlo(runModel, baseInputs, variableConfigs, n = 1000, o
     moicHistogram,
     sensitivity,
     scatter,
-    probIRR: stats.probIRR,
+    probIRR,
   };
 }
