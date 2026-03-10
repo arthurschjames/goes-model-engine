@@ -429,7 +429,7 @@ export const MARKERS = {
   txCostEscalation: { bear: 0.05, base: 0.04, bull: 0.03 },
   txExistStartYear: { bear: 3, base: 2, bull: 1 },
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
-  txBaseRevenue: { bear: 400, base: 500, bull: 600 },
+  txBaseRevenue: { bear: 100, base: 500, bull: 4000 },
   txBaseEBITDAMargin: { bear: 0.10, base: 0.125, bull: 0.15 },
   txGOESIntensity: { bear: 15, base: 16, bull: 17 },
   txAcqMultiple: { bear: 20, base: 15, bull: 10 },
