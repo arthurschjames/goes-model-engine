@@ -100,7 +100,7 @@ export { INFO } from "./infoTooltips.js";
 const BASE = {
   // Steel Mill — utilization ramp (start → target over rampYears)
   goesStartUtil: 0.70, goesTargetUtil: 0.92, goesRampYears: 2,
-  goesPrice: 5600, duopolyImpact: 0.17,
+  goesPrice: 5700, duopolyImpact: 0.17,
   goesProductionCost: 2800, nipponYear: 5, dodOn: true, dodRenewal: true,
   doeOn: false, doeYear: 1,
   goesPriceInflation: 0.035,
@@ -364,7 +364,7 @@ export const MARKERS = {
   goesStartUtil: { bear: 0.60, base: 0.70, bull: 0.85 },
   goesTargetUtil: { bear: 0.85, base: 0.92, bull: 0.98 },
   goesRampYears: { bear: 5, base: 2, bull: 1 },
-  goesPrice: { bear: 5000, base: 5600, bull: 6500 },
+  goesPrice: { bear: 5000, base: 5700, bull: 6500 },
   duopolyImpact: { bear: 0.22, base: 0.17, bull: 0.12 },
   goesProductionCost: { bear: 3200, base: 2800, bull: 2400 },
   nipponYear: { bear: 4, base: 5, bull: 7 },
