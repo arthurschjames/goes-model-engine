@@ -137,7 +137,7 @@ const BASE = {
   // Returns
   exitMultiple: 10, holdPeriod: 10, exitTxnCosts: 0.025, waccRate: 0.082, waccMode: "manual",
   // Growth & Inflation
-  cpiRate: 0.025, txPriceEscalation: 0.05, terminalGrowth: 0.025,
+  cpiRate: 0.025, txPriceEscalation: 0.05, txEscalationDecay: 0, txCostEscalation: 0.04, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
@@ -192,7 +192,7 @@ const BASE = {
 // going wrong/right is meaningful, unlike every variable simultaneously at extremes.
 
 const OVERRIDES = {
-  base: { label: "Base Case", doeOn: true },
+  base: { label: "Base Case", doeOn: true, txEscalationDecay: 0 },
 
   // ── Downside: Weak Market ──────────────────────────────────────────────────
   // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue,
@@ -208,7 +208,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 40, txAcqNonCoreMargin: 0.17,
     // TX greenfield — moderate ASP compression, delayed start
     txGfStartYear: 3, gfRampYears: 5,
-    mpASP: 900000, distASP: 18000, txPriceEscalation: 0.03,
+    mpASP: 900000, distASP: 18000, txPriceEscalation: 0.03, txEscalationDecay: 0.015, txCostEscalation: 0.05,
     mpUnits: 100,
     // Market-correlated: exit buyers pay less in weak narrative, less captive consumption
     exitMultiple: 9.5, captivePct: 0.85,
@@ -234,6 +234,7 @@ const OVERRIDES = {
     // Captive sourcing hedge — quality issues force some external GOES purchasing
     captivePct: 0.90, nonGoesMargin: 0.13,
     exitMultiple: 10,
+    txEscalationDecay: 0.005, txCostEscalation: 0.05,
   },
 
   // ── Downside: Adverse Financing ────────────────────────────────────────────
@@ -264,7 +265,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.25,
     // TX greenfield — early start, strong ASPs, larger scale
     txGfStartYear: 1, gfRampYears: 3, greenfieldCapex: 175,
-    mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.07,
+    mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.07, txCostEscalation: 0.035,
     mpUnits: 200,
     // Exit — decade of secular tailwinds capitalized into valuations
     exitMultiple: 12,
@@ -286,6 +287,7 @@ const OVERRIDES = {
     exitMultiple: 11.5,
     doeOn: true, doeYear: 1,
     nwcPctRevenue: 0.12, nwcStartPct: 0.15, nwcRampYears: 2,
+    txCostEscalation: 0.03,
   },
 
   // ── Upside: Best-Case Deal Structure ───────────────────────────────────────
@@ -322,6 +324,7 @@ const OVERRIDES = {
     txAcqMultiple: 15, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 100, distUnits: 0, gfRampYears: 4, greenfieldCapex: 250,
     workingCapital: 200, exitMultiple: 12, maintCapexPct: 0.07, daPctRevenue: 0.12,
+    txEscalationDecay: 0.005,
   },
   deltaStar: {
     label: "Delta Star",
@@ -331,6 +334,7 @@ const OVERRIDES = {
     txAcqMultiple: 10, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
     exitMultiple: 10, maintCapexPct: 0.06, daPctRevenue: 0.11,
+    txEscalationDecay: 0.005,
   },
 };
 
@@ -413,6 +417,8 @@ export const MARKERS = {
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
   txPriceEscalation: { bear: 0.03, base: 0.05, bull: 0.07 },
+  txEscalationDecay: { bear: 0.015, base: 0, bull: 0 },
+  txCostEscalation: { bear: 0.05, base: 0.04, bull: 0.03 },
   txExistStartYear: { bear: 3, base: 2, bull: 1 },
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
@@ -479,7 +485,7 @@ export function runModel(inputs) {
     entryMultiple, workingCapital, pensionLiability, txnFees,
     ltv, costOfDebt,
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
-    cpiRate, txPriceEscalation, terminalGrowth,
+    cpiRate, txPriceEscalation, txEscalationDecay, txCostEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
     nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
     daPctRevenue, useAdvancedDep,
@@ -690,7 +696,13 @@ export function runModel(inputs) {
 
     // Escalation factors: Y1=base, Y2=base*(1+r), etc.
     const cpiEsc = Math.pow(1 + cpiRate, y - 1);
-    const txPriceEsc = Math.pow(1 + txPriceEscalation, y - 1);
+    // TX price escalation with optional decay (rate declines each year, floored at CPI)
+    let txPriceEsc = 1;
+    for (let yr = 1; yr < y; yr++) {
+      const rate = Math.max(cpiRate, txPriceEscalation - txEscalationDecay * (yr - 1));
+      txPriceEsc *= (1 + rate);
+    }
+    const txCostEsc = Math.pow(1 + txCostEscalation, y - 1);
     const nonGoesEsc = cpiEsc; // Non-GOES revenue tracks CPI automatically
 
     // DOE — linear ramp over DOE_RAMP_YEARS starting at doeYear
@@ -785,8 +797,9 @@ export function runModel(inputs) {
     const gfGOESCostMkt = (gfMarketPurchase * mktPrice) / 1e6;
     const gfGOESCost = gfGOESCostCap + gfGOESCostMkt;
     // Operating costs — single % per product (includes interm savings if applicable)
-    const mpOpCostY = (mpUnitsY * mpASP * mpEffOpCostPct * cpiEsc) / 1e6;
-    const distOpCostY = (distUnitsY * distASP * distEffOpCostPct * cpiEsc) / 1e6;
+    // TX costs escalate at txCostEscalation (between CPI and ASP) to avoid artificial margin expansion
+    const mpOpCostY = (mpUnitsY * mpASP * mpEffOpCostPct * txCostEsc) / 1e6;
+    const distOpCostY = (distUnitsY * distASP * distEffOpCostPct * txCostEsc) / 1e6;
     const gfOpCost = mpOpCostY + distOpCostY;
     const gfRev = mpRevY + distRevY;
     const gfEBITDA = gfRev - gfGOESCost - gfOpCost;
