@@ -948,9 +948,9 @@ export function runModel(inputs) {
   const pvTVGordon = tvGordon / Math.pow(1 + wacc, holdPeriod);
   const evGordon = sumPVFCFs + pvTVGordon;
 
-  // Enterprise & Equity Values
+  // Both methods subtract initial (close-date) net debt — DCF values the enterprise as of acquisition
   const eqValExit = evExit - debtInitial;
-  const eqValGordon = evGordon - debtAtExit;
+  const eqValGordon = evGordon - debtInitial;
   const impliedMultiple = tE > 0 ? evExit / tE : 0;
 
   // Backward compat aliases
