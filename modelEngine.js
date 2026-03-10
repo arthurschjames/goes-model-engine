@@ -143,6 +143,7 @@ const BASE = {
   // Debt Structure
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
+  ddtlCommitmentFee: 0.005, // 50bps commitment fee on undrawn DDTL balance
   // Sustaining Capex — % of consolidated revenue (auto-scales with business)
   maintCapexPct: 0.07, // 7% of revenue — maintenance capex
   // D&A — % of revenue (default mode) or component-based (advanced mode)
@@ -386,6 +387,7 @@ export const MARKERS = {
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
+  ddtlCommitmentFee: { bear: 0.0075, base: 0.005, bull: 0.0025 },
   exitMultiple: { bear: 9, base: 10, bull: 13 },
   exitTxnCosts: { bear: 0.035, base: 0.025, bull: 0.015 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
@@ -463,7 +465,7 @@ export function runModel(inputs) {
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
     cpiRate, txPriceEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, cashSweepPct, maintCapexPct,
+    nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct,
     daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
   } = p;
@@ -614,12 +616,20 @@ export function runModel(inputs) {
     }
   }
 
+  // ── DDTL: track drawn vs. undrawn debt ──
+  // Total committed facility = debtInitial. Drawn at Y0 = debt share of Y0 uses.
+  // Remaining commitment draws down as deferred capex deploys.
+  const totalCommitted = debtInitial;
+  const y0Debt = (y0Uses - doeGrantAmt) * ltv; // debt portion of Y0 deployment
+  // Cumulative amount ever drawn — only increases (draws), never decreases (amort)
+  let cumulativeDrawn = Math.min(y0Debt, totalCommitted);
+
   // ── Year-by-year projections ──
   const years = [];
   let cumUFCF = 0;
   let cumLFCF = 0;
   let prevNWC = workingCapital; // Initialize to closing NWC so Y1 deltaNWC only captures incremental change
-  let debtBal = debtInitial; // Remaining debt balance (decreases with amort + sweep)
+  let debtBal = Math.min(y0Debt, totalCommitted); // Outstanding drawn debt (decreases with amort + sweep)
   let nolBalance = 0; // Net operating loss carryforward (levered, based on EBT)
   let nolBalanceUnlevered = 0; // Net operating loss carryforward (unlevered, based on EBIT)
 
@@ -649,7 +659,9 @@ export function runModel(inputs) {
       z.totalRev = y1SegRev;
       z.totalEBITDA = y1ButlerEBITDA;
       z.margin = y1SegRev > 0 ? y1ButlerEBITDA / y1SegRev : 0;
-      z.debtBal = debtInitial;
+      z.debtBal = debtBal;
+      z.drawnBalance = debtBal;
+      z.undrawnCommitment = Math.max(0, totalCommitted - cumulativeDrawn);
       years.push(z);
       continue;
     }
@@ -783,6 +795,13 @@ export function runModel(inputs) {
     if (y === txAcqDeployYear && txAcqDeployYear > 0) capexDeploy += effTxAcqPrice;
     if (y === gfCapexDeployYear && gfCapexDeployYear > 0) capexDeploy += effGfCapex;
 
+    // DDTL: draw down remaining commitment when deferred capex deploys
+    if (capexDeploy > 0) {
+      const newDraw = Math.min(capexDeploy * ltv, totalCommitted - cumulativeDrawn);
+      cumulativeDrawn += newDraw;
+      debtBal += newDraw;
+    }
+
     // Capex, D&A, taxes, FCF
     // Maintenance capex as % of total consolidated revenue — auto-scales with business
     const mc = totalRev * maintCapexPct;
@@ -812,7 +831,9 @@ export function runModel(inputs) {
     // The expensed portion of maintenance capex (routine repairs) is ALSO tax-deductible
     // but NOT in D&A — we must deduct it separately to compute correct taxable income.
     const maintExpensed = mc * (1 - MAINT_CAPITALIZATION_RATE);
-    const intAnn = debtBal * costOfDebt;
+    // DDTL interest: full coupon on drawn outstanding + commitment fee on undrawn
+    const undrawnCommitment = Math.max(0, totalCommitted - cumulativeDrawn);
+    const intAnn = debtBal * costOfDebt + undrawnCommitment * ddtlCommitmentFee;
     const ebit = totalEBITDA - da - maintExpensed;
     // Unlevered tax (no interest deduction) — used for UFCF and DCF
     // NOL carryforward per TCJA §172: post-2017 NOLs offset up to 80% of taxable income
@@ -873,7 +894,7 @@ export function runModel(inputs) {
       totalRev, totalEBITDA, margin,
       capexDeploy,
       nwcPctY, nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, nolBalance, nolBalanceUnlevered,
+      debtBal, drawnBalance: debtBal, undrawnCommitment, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, nolBalance, nolBalanceUnlevered,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
@@ -1022,7 +1043,7 @@ export function runModel(inputs) {
 
     // ── Backward compat aliases (used by existing UI components) ──
     ti, debt: debtInitial, eq, eqM: equityMultiple, pb, tE, termUFCF: terminalUFCF,
-    ev, eqVal, pvTV, implM, intAnn: debtInitial * costOfDebt,
+    ev, eqVal, pvTV, implM, intAnn: years[1] ? years[1].intAnn : 0,
     acqPrice: butlerAcqPrice, waccRate: wacc, tvDCF: tvGordon,
   };
 }
@@ -1045,7 +1066,7 @@ function zeroYear() {
     "totalRev", "totalEBITDA", "margin",
     "capexDeploy",
     "nwcPctY", "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
-    "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
+    "debtBal", "drawnBalance", "undrawnCommitment", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
     "nolBalance", "nolBalanceUnlevered",
   ];
