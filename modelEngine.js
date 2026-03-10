@@ -137,7 +137,9 @@ const BASE = {
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
-  nwcPctRevenue: 0.15, // NWC as % of revenue — delta flows through FCF each year
+  nwcPctRevenue: 0.15, // NWC target % of revenue after ramp
+  nwcStartPct: 0.15,   // NWC starting % of revenue (entry-implied level)
+  nwcRampYears: 3,     // Years to linearly ramp from nwcStartPct → nwcPctRevenue
   // Debt Structure
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
@@ -208,7 +210,7 @@ const OVERRIDES = {
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distOpCostPct: 0.67, distIntermediatePct: 0.10,
     doeOn: true, doeYear: 3,
-    nwcPctRevenue: 0.18,
+    nwcPctRevenue: 0.18, nwcStartPct: 0.20, nwcRampYears: 5,
     // Captive sourcing hedge — quality issues force some external GOES purchasing
     captivePct: 0.90, nonGoesMargin: 0.13,
     exitMultiple: 10,
@@ -247,20 +249,20 @@ const OVERRIDES = {
 
   // ── Upside: Operational Excellence ─────────────────────────────────────────
   // Stress: fast ramp, low costs, lean overhead, efficient greenfield
-  // Unchanged: market pricing, deal terms
+  // Unchanged: market pricing, deal terms, CPI (macro — not ops-controllable)
   opsExcel: {
     label: "Ops Excellence",
-    goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
+    goesStartUtil: 0.85, goesTargetUtil: 0.95, goesRampYears: 1,
     goesProductionCost: 2400, overheadPct: 0.05,
-    maintCapexPct: 0.05, daPctRevenue: 0.10,
+    maintCapexPct: 0.06, daPctRevenue: 0.10,
     // TX greenfield — accelerated build, low costs, fast ramp
     txGfStartYear: 1, gfRampYears: 3,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
     distOpCostPct: 0.52, distIntermediatePct: 0.06,
-    greenfieldCapex: 100, internalizeIntermediate: true,
+    greenfieldCapex: 120, internalizeIntermediate: true,
+    exitMultiple: 11.5,
     doeOn: true, doeYear: 1,
-    nwcPctRevenue: 0.12,
-    cpiRate: 0.020,
+    nwcPctRevenue: 0.12, nwcStartPct: 0.15, nwcRampYears: 2,
   },
 
   // ── Upside: Best-Case Deal Structure ───────────────────────────────────────
@@ -396,6 +398,8 @@ export const MARKERS = {
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
   sizePremium: { bear: 0.025, base: 0.02, bull: 0.015 },
   nwcPctRevenue: { bear: 0.18, base: 0.15, bull: 0.12 },
+  nwcStartPct: { bear: 0.20, base: 0.15, bull: 0.15 },
+  nwcRampYears: { bear: 5, base: 3, bull: 2 },
   waccRate: { bear: 0.12, base: 0.09, bull: 0.08 },
 };
 
@@ -456,6 +460,10 @@ export function runModel(inputs) {
   const goesStartUtil = p.goesStartUtil ?? BASE.goesStartUtil;
   const goesTargetUtil = p.goesTargetUtil ?? goesStartUtil;
   const goesRampYears = p.goesRampYears ?? BASE.goesRampYears;
+
+  // NWC ramp: start at entry-implied NWC % and ramp to target over nwcRampYears
+  const nwcStart = p.nwcStartPct ?? nwcPctRevenue; // default: no ramp (start = target)
+  const nwcRampYrs = p.nwcRampYears ?? BASE.nwcRampYears;
 
   const goesPrice = p.goesPrice ?? BASE.goesPrice;
   const duopolyImpact = p.duopolyImpact ?? BASE.duopolyImpact;
@@ -750,8 +758,10 @@ export function runModel(inputs) {
     const totalEBITDA = goesEBITDA + txTotalEBITDA;
     const margin = totalRev > 0 ? totalEBITDA / totalRev : 0;
 
-    // Working capital — NWC as % of revenue, delta reduces FCF
-    const nwc = totalRev * nwcPctRevenue;
+    // Working capital — NWC % ramps from nwcStartPct → nwcPctRevenue over nwcRampYears
+    const nwcBlend = nwcRampYrs > 0 ? Math.min(1, (y - 1) / nwcRampYrs) : 1;
+    const nwcPctY = nwcStart + (nwcPctRevenue - nwcStart) * nwcBlend;
+    const nwc = totalRev * nwcPctY;
     const deltaNWC = nwc - prevNWC;
     prevNWC = nwc;
 
@@ -832,7 +842,7 @@ export function runModel(inputs) {
       // Consolidated
       totalRev, totalEBITDA, margin,
       capexDeploy,
-      nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
+      nwcPctY, nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
       debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
@@ -1004,7 +1014,7 @@ function zeroYear() {
     "txTotalRev", "txTotalEBITDA", "txMargin", "totalCaptiveAdv",
     "totalRev", "totalEBITDA", "margin",
     "capexDeploy",
-    "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
+    "nwcPctY", "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
     "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
   ];
