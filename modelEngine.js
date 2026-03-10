@@ -173,7 +173,7 @@ const BASE = {
 // going wrong/right is meaningful, unlike every variable simultaneously at extremes.
 
 const OVERRIDES = {
-  base: { label: "Base Case" },
+  base: { label: "Base Case", doeOn: true },
 
   // ── Downside: Weak Market ──────────────────────────────────────────────────
   // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue, TX margins
