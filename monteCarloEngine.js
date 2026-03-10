@@ -198,6 +198,14 @@ export const MC_DEFAULTS = {
     min: 0.015, mode: 0.025, max: 0.045,
     format: "pct",
   },
+  tariffReductionPct: {
+    label: "Tariff Reduction %",
+    key: "tariffReductionPct",
+    distribution: "triangular",
+    min: 0.25, mode: 0.45, max: 0.55,
+    format: "pct",
+    cond: i => i.tariffRiskEnabled,
+  },
 };
 
 export const MC_VARIABLE_KEYS = Object.keys(MC_DEFAULTS);

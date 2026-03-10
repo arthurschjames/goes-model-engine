@@ -146,6 +146,11 @@ const BASE = {
   ddtlCommitmentFee: 0.005, // 50bps commitment fee on undrawn DDTL balance
   // Cost Structure
   fixedCostShare: 0.40, // % of GOES production cost that is fixed
+  // Tariff Risk (Section 232)
+  tariffRiskEnabled: false,        // toggle: model tariff reduction scenario
+  tariffReductionPct: 0.45,        // % reduction in GOES market price if tariffs removed
+  tariffRiskYear: 4,               // year tariff change takes effect
+  tariffTransitionYears: 2,        // years to fully phase in price reduction
   // Sustaining Capex — % of consolidated revenue (auto-scales with business)
   maintCapexPct: 0.07, // 7% of revenue — maintenance capex
   // D&A — % of revenue (default mode) or component-based (advanced mode)
@@ -475,6 +480,7 @@ export function runModel(inputs) {
     nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
     daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
+    tariffRiskEnabled, tariffReductionPct, tariffRiskYear, tariffTransitionYears,
   } = p;
 
   const goesStartUtil = p.goesStartUtil ?? BASE.goesStartUtil;
@@ -692,7 +698,14 @@ export function runModel(inputs) {
     const duoBlend = Math.min(1, Math.max(0, (y - nipponYear + 1) / DUOPOLY_TRANSITION_YEARS));
     const duo = duoBlend > 0;
     const priceEsc = Math.pow(1 + goesPriceInflation, y - 1);
-    const mktPrice = (goesPrice * (1 - duoBlend) + goesPostDuopolyPrice * duoBlend) * priceEsc;
+
+    // Tariff risk — Section 232 reduction ramps from 0 to tariffReductionPct over tariffTransitionYears
+    // Stacks independently with duopoly impact. DOD contract price is unaffected (government contract).
+    const tariffAdj = tariffRiskEnabled && y >= tariffRiskYear
+      ? Math.min(tariffReductionPct, tariffReductionPct * Math.min(1, (y - tariffRiskYear + 1) / Math.max(1, tariffTransitionYears)))
+      : 0;
+
+    const mktPrice = (goesPrice * (1 - duoBlend) + goesPostDuopolyPrice * duoBlend) * (1 - tariffAdj) * priceEsc;
 
     // GOES production — utilization ramps from start → target over rampYears.
     // With DOE active, capacity ramps linearly (max ~114% at full DOE).
