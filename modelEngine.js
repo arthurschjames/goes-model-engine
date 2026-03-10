@@ -90,7 +90,7 @@ export const DOE_SAVINGS_PER_TON = DOE_TARGET_SAVINGS * 1e6 / NAMEPLATE; // ~$44
 export const DOE_RAMP_YEARS = 2; // linear ramp from doeYear over 2 years
 // OVERHEAD_BASE removed — overhead is now overheadPct (% of revenue)
 export const FIXED_COST_SHARE_DEFAULT = 0.40; // default ~40% of production cost is fixed (labor, maintenance, facility)
-export const TAX_RATE = 0.25;
+export const TAX_RATE = 0.25; // legacy default — overridden by inputs.taxRate when present
 export const DOE_GRANT_AMOUNT = 75; // $M
 export const INTERNALIZE_FACTOR_DEFAULT = 0.50; // configurable via internalizeFactor input
 export const DUOPOLY_TRANSITION_YEARS = 4; // Nippon ramps over 4 years, gradually compressing prices
@@ -131,6 +131,10 @@ const BASE = {
   // TX GOES Sourcing
   captivePct: 1.00,
   // Transformer Non-Core (removed — greenfield non-core no longer modeled)
+  // Tax
+  taxRate: 0.25, // Combined federal + state effective tax rate
+  interestCapEnabled: false, // Section 163(j) interest deductibility cap
+  interestCapPct: 0.30, // Max deductible interest as % of adjusted taxable income (EBITDA)
   // Capital Structure
   entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
@@ -486,6 +490,7 @@ export function runModel(inputs) {
     distOpCostPct, distIntermediatePct,
     ramp, gfRampYears, greenfieldCapex, internalizeIntermediate,
     captivePct,
+    taxRate, interestCapEnabled, interestCapPct,
     entryMultiple, workingCapital, pensionLiability, txnFees,
     ltv, costOfDebt,
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
@@ -549,7 +554,7 @@ export function runModel(inputs) {
     kdAfterTax = null;
   } else {
     ke = riskFreeRate + beta * equityRiskPremium + sizePremium;
-    kdAfterTax = costOfDebt * (1 - TAX_RATE);
+    kdAfterTax = costOfDebt * (1 - taxRate);
     wacc = (1 - ltv) * ke + ltv * kdAfterTax;
   }
 
@@ -662,6 +667,7 @@ export function runModel(inputs) {
   let debtBal = Math.min(y0Debt, totalCommitted); // Outstanding drawn debt (decreases with amort + sweep)
   let nolBalance = 0; // Net operating loss carryforward (levered, based on EBT)
   let nolBalanceUnlevered = 0; // Net operating loss carryforward (unlevered, based on EBIT)
+  let disallowedInterestBalance = 0; // Section 163(j) disallowed interest carryforward
 
   for (let y = 0; y <= holdPeriod; y++) {
     if (y === 0) {
@@ -881,26 +887,39 @@ export function runModel(inputs) {
     const ebit = totalEBITDA - da - maintExpensed;
     // Unlevered tax (no interest deduction) — used for UFCF and DCF
     // NOL carryforward per TCJA §172: post-2017 NOLs offset up to 80% of taxable income
-    let tax;
+    let tax, nolUsedUnlevered;
     if (ebit < 0) {
       nolBalanceUnlevered += Math.abs(ebit);
       tax = 0;
+      nolUsedUnlevered = 0;
     } else {
-      const nolUsableUnlev = Math.min(nolBalanceUnlevered, ebit * 0.80);
-      tax = Math.max(0, (ebit - nolUsableUnlev) * TAX_RATE);
-      nolBalanceUnlevered -= nolUsableUnlev;
+      nolUsedUnlevered = Math.min(nolBalanceUnlevered, ebit * 0.80);
+      tax = Math.max(0, (ebit - nolUsedUnlevered) * taxRate);
+      nolBalanceUnlevered -= nolUsedUnlevered;
     }
     const ufcf = totalEBITDA - mc - tax - deltaNWC;
+    // Section 163(j): limit business interest deduction to interestCapPct × EBITDA
+    let deductibleInterest = intAnn;
+    let disallowedInterest = 0;
+    if (interestCapEnabled) {
+      const maxDeductible = Math.max(0, totalEBITDA * interestCapPct);
+      // Include carryforward of previously disallowed interest
+      const totalInterest = intAnn + disallowedInterestBalance;
+      deductibleInterest = Math.min(totalInterest, maxDeductible);
+      disallowedInterest = totalInterest - deductibleInterest;
+      disallowedInterestBalance = disallowedInterest;
+    }
     // Levered tax (after interest deduction) — used for LFCF
-    const ebt = ebit - intAnn;
-    let taxLevered;
+    const ebt = ebit - deductibleInterest;
+    let taxLevered, nolUsed;
     if (ebt < 0) {
       nolBalance += Math.abs(ebt);
       taxLevered = 0;
+      nolUsed = 0;
     } else {
-      const nolUsable = Math.min(nolBalance, ebt * 0.80);
-      taxLevered = Math.max(0, (ebt - nolUsable) * TAX_RATE);
-      nolBalance -= nolUsable;
+      nolUsed = Math.min(nolBalance, ebt * 0.80);
+      taxLevered = Math.max(0, (ebt - nolUsed) * taxRate);
+      nolBalance -= nolUsed;
     }
     // Debt service: % of BOY balance amortization + cash sweep above min cash
     const schedAmort = debtBal * debtAmortPct;
@@ -942,7 +961,9 @@ export function runModel(inputs) {
       totalRev, totalEBITDA, margin,
       capexDeploy,
       nwcPctY, nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, drawnBalance: debtBal, undrawnCommitment, schedAmort, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, leverageRatio, dscr, nolBalance, nolBalanceUnlevered,
+      debtBal, drawnBalance: debtBal, undrawnCommitment, schedAmort, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage, leverageRatio, dscr,
+      nolBalance, nolBalanceUnlevered, nolUsed, nolUsedUnlevered,
+      deductibleInterest, disallowedInterest, disallowedInterestBalance,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
