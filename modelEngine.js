@@ -131,7 +131,7 @@ const BASE = {
   entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
-  exitMultiple: 10, holdPeriod: 10, waccRate: 0.082, waccMode: "manual",
+  exitMultiple: 10, holdPeriod: 10, exitTxnCosts: 0.025, waccRate: 0.082, waccMode: "manual",
   // Growth & Inflation
   cpiRate: 0.025, txPriceEscalation: 0.05, terminalGrowth: 0.025,
   // WACC Build-up
@@ -387,6 +387,7 @@ export const MARKERS = {
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
   exitMultiple: { bear: 9, base: 10, bull: 13 },
+  exitTxnCosts: { bear: 0.035, base: 0.025, bull: 0.015 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
   maintCapexPct: { bear: 0.09, base: 0.07, bull: 0.05 },
   daPctRevenue: { bear: 0.14, base: 0.12, bull: 0.10 },
@@ -459,7 +460,7 @@ export function runModel(inputs) {
     captivePct,
     entryMultiple, workingCapital, pensionLiability, txnFees,
     ltv, costOfDebt,
-    exitMultiple, holdPeriod, waccMode, waccRate,
+    exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
     cpiRate, txPriceEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
     nwcPctRevenue, debtAmortYears, cashSweepPct, maintCapexPct,
@@ -881,7 +882,7 @@ export function runModel(inputs) {
   // ── Terminal value & returns ──
   const termYear = years[holdPeriod];
   const tE = termYear.totalEBITDA;
-  const tv = tE * exitMultiple;
+  const tv = tE * exitMultiple * (1 - exitTxnCosts);
 
   // Remaining debt at exit (after amortization + sweeps over hold period)
   const debtAtExit = termYear.debtBal;
@@ -907,7 +908,7 @@ export function runModel(inputs) {
   const realLIRR = lIRR != null ? (1 + lIRR) / (1 + cpiRate) - 1 : null;
 
   // Operational IRR — levered IRR assuming exit multiple = entry multiple (zero expansion)
-  const tvNoExpansion = tE * entryMultiple;
+  const tvNoExpansion = tE * entryMultiple * (1 - exitTxnCosts);
   const opLCFs = years.map((yr, i) =>
     i === 0 ? lCFs[0] :
     i === holdPeriod ? yr.lfcf + tvNoExpansion - debtAtExit :
@@ -956,7 +957,7 @@ export function runModel(inputs) {
   const sumPVFCFs = pvFCFs.reduce((s, v) => s + v, 0);
 
   // Method A: Exit Multiple
-  const tvExitMult = tE * exitMultiple;
+  const tvExitMult = tv;
   const pvTVExit = tvExitMult / Math.pow(1 + wacc, holdPeriod);
   const evExit = sumPVFCFs + pvTVExit;
 
@@ -1012,7 +1013,7 @@ export function runModel(inputs) {
     stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
     totalUses, y0Uses, doeGrantAmt, txnFeesAmt,
     txAcqDeployYear, gfCapexDeployYear, uCFs,
-    y1ButlerEBITDA, tv, chart, warnings,
+    y1ButlerEBITDA, tv, exitTxnCosts, chart, warnings,
     greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
     goesStartUtil, goesTargetUtil, goesRampYears,
     revCAGR, ebitdaCAGR,
