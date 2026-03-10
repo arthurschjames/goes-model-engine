@@ -200,16 +200,18 @@ const OVERRIDES = {
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
     goesProductionCost: 3200, overheadPct: 0.09,
     maintCapexPct: 0.09, daPctRevenue: 0.14,
-    // TX existing — delayed integration, slower start
-    txExistStartYear: 2,
+    // TX existing — delayed integration, slower start, margin spillover
+    txExistStartYear: 2, txBaseEBITDAMargin: 0.11,
     // TX greenfield — delayed, slow ramp, cost overruns
     txGfStartYear: 3, gfRampYears: 5,
-    ramp: [0, 0.20, 0.50, 0.80], greenfieldCapex: 200,
+    ramp: [0, 0.20, 0.50, 0.80, 1.0], greenfieldCapex: 200,
     mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
     distOpCostPct: 0.67, distIntermediatePct: 0.10,
-    doeYear: 3,
+    doeOn: true, doeYear: 3,
     nwcPctRevenue: 0.18,
-    cpiRate: 0.035,
+    // Captive sourcing hedge — quality issues force some external GOES purchasing
+    captivePct: 0.90, nonGoesMargin: 0.13,
+    exitMultiple: 10,
   },
 
   // ── Downside: Adverse Financing ────────────────────────────────────────────
