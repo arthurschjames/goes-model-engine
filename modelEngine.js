@@ -115,7 +115,7 @@ const BASE = {
   txGOESIntensity: 16,       // tons per $M revenue (range ~5-25; VTC ~10, Delta Star ~17)
   txExistUnits: 0,           // units/yr (detailed "units" mode only)
   txExistGOESPerUnit: 14,    // tons GOES per unit (detailed "units" mode only)
-  txAcqMultiple: 8, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
+  txAcqMultiple: 15, txAcqNonCoreRevenue: 50, txAcqNonCoreMargin: 0.20,
   // TX Greenfield — capacity expansion
   txGreenfieldEnabled: true, txGfStartYear: 2,
   mpUnits: 150, goesPerMP: 14, mpASP: 1100000,
@@ -221,7 +221,7 @@ const OVERRIDES = {
     pensionLiability: 400,
     ltv: 0.45, costOfDebt: 0.08,
     // TX acquisition — overpay in competitive auction
-    txAcqMultiple: 10,
+    txAcqMultiple: 19,
     waccRate: 0.106, terminalGrowth: 0.02,
     riskFreeRate: 0.045, beta: 1.35, sizePremium: 0.025,
   },
@@ -269,7 +269,7 @@ const OVERRIDES = {
     entryMultiple: 7.0, exitMultiple: 16,
     ltv: 0.60, costOfDebt: 0.065,
     // TX acquisition — bargain price in distressed / off-market deal
-    txAcqMultiple: 6,
+    txAcqMultiple: 11,
     waccRate: 0.072, terminalGrowth: 0.03,
     riskFreeRate: 0.035, beta: 1.05, sizePremium: 0.015,
   },
@@ -288,7 +288,7 @@ const OVERRIDES = {
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
     txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: false,
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txGOESIntensity: 10,
-    txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
+    txAcqMultiple: 6.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
     workingCapital: 200, exitMultiple: 14, maintCapexPct: 0.07, daPctRevenue: 0.12,
   },
@@ -297,7 +297,7 @@ const OVERRIDES = {
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
     txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: true, txGfStartYear: 2,
     txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txGOESIntensity: 17,
-    txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
+    txAcqMultiple: 14, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
     exitMultiple: 13, maintCapexPct: 0.06, daPctRevenue: 0.11,
   },
@@ -385,7 +385,7 @@ export const MARKERS = {
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
   txBaseEBITDAMargin: { bear: 0.10, base: 0.125, bull: 0.15 },
   txGOESIntensity: { bear: 15, base: 16, bull: 17 },
-  txAcqMultiple: { bear: 10, base: 8, bull: 6 },
+  txAcqMultiple: { bear: 20, base: 15, bull: 10 },
   txAcqNonCoreRevenue: { bear: 35, base: 50, bull: 75 },
   txAcqNonCoreMargin: { bear: 0.15, base: 0.20, bull: 0.22 },
   gfRampYears: { bear: 5, base: 4, bull: 3 },
