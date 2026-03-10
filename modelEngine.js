@@ -362,16 +362,19 @@ export const MARKERS = {
  *
  * @returns {Object} Full model output:
  *   - years[]: Array of year-by-year projections (production, revenue, EBITDA, FCF, debt, etc.)
+ *   - wacc, ke, kdAfterTax: Discount rate and components
+ *   - totalInvestment, debtInitial, equity, debtAtExit: Capital structure
+ *   - pvFCFs[], sumPVFCFs: Present values of interim free cash flows
+ *   - tvExitMult, pvTVExit, evExit, eqValExit, impliedMultiple: Exit Multiple DCF
+ *   - tvGordon, pvTVGordon, evGordon, eqValGordon: Gordon Growth DCF
+ *   - terminalEBITDA, terminalUFCF: Terminal year metrics
+ *   - uIRR, lIRR, realUIRR, realLIRR: Nominal and real IRRs
+ *   - equityMultiple: Equity MOIC (total distributions / equity)
+ *   - paybackPeriod: Years to recover total investment (null if >hold)
  *   - stab: Stabilized-year snapshot (last year metrics)
- *   - uIRR/lIRR: Unlevered/levered IRR (decimal, e.g. 0.15 = 15%)
- *   - realUIRR/realLIRR: Inflation-adjusted real IRRs
- *   - eqM: Equity MOIC
- *   - ev: DCF enterprise value ($M)
- *   - implM: DCF implied exit multiple
- *   - pb: Payback period (years, null if >hold)
- *   - tv: Terminal value, ti: Total investment
  *   - butlerAcqPrice, txAcqPrice: Acquisition prices ($M)
  *   - warnings[]: Array of warning strings for edge cases
+ *   - Backward compat aliases: ti, debt, eq, eqM, pb, tE, ev, eqVal, pvTV, implM, etc.
  */
 export function runModel(inputs) {
   const p = { ...BASE, ...inputs };
@@ -509,6 +512,7 @@ export function runModel(inputs) {
   if (exitMultiple < entryMultiple * 0.5) warnings.push("Exit multiple is less than half the entry multiple — likely negative returns.");
   if (exitMultiple > entryMultiple * 1.5) warnings.push(`Exit multiple (${exitMultiple.toFixed(1)}x) is >1.5× entry (${entryMultiple.toFixed(1)}x) — optimistic assumption.`);
   if (wacc <= terminalGrowth) warnings.push("WACC ≤ terminal growth — Gordon Growth terminal value is undefined.");
+  if (eq <= 0) warnings.push("Equity ≤ 0 — equity multiple is meaningless.");
   if (txGfActive && greenfieldCapex > 0 && mpUnits === 0 && distUnits === 0) warnings.push("Greenfield capex allocated but no transformer units specified.");
   if (txPriceEscalation > cpiRate * 3) warnings.push(`Transformer price escalation (${fmtPct(txPriceEscalation)}) significantly exceeds CPI (${fmtPct(cpiRate)}) — verify long-term sustainability.`);
 
@@ -715,9 +719,9 @@ export function runModel(inputs) {
   const realUIRR = uIRR != null ? (1 + uIRR) / (1 + cpiRate) - 1 : null;
   const realLIRR = lIRR != null ? (1 + lIRR) / (1 + cpiRate) - 1 : null;
 
-  // Equity multiple
+  // Equity multiple (MOIC)
   const tDist = years.reduce((s, yr) => s + yr.lfcf, 0) + tv - debtAtExit;
-  const eqM = eq > 0 ? tDist / eq : 0;
+  const equityMultiple = eq > 0 ? tDist / eq : 0;
 
   // Payback period
   let cum = -ti, pb = null;
@@ -732,25 +736,33 @@ export function runModel(inputs) {
   // Stabilized year (first full ramp, typically Y4)
   const stab = years[Math.min(4, holdPeriod)] || years[years.length - 1];
 
-  // ── DCF ──
+  // ── DCF Valuation ──
+  // Present Value of Interim Free Cash Flows
+  const pvFCFs = years.filter(yr => yr.year > 0).map((yr, i) => yr.ufcf / Math.pow(1 + wacc, i + 1));
+  const sumPVFCFs = pvFCFs.reduce((s, v) => s + v, 0);
+
   // Method A: Exit Multiple
   const tvExitMult = tE * exitMultiple;
-  const pvFCFs = years.filter(yr => yr.year > 0).map((yr, i) => yr.ufcf / Math.pow(1 + wacc, i + 1));
   const pvTVExit = tvExitMult / Math.pow(1 + wacc, holdPeriod);
-  const evExit = pvFCFs.reduce((s, v) => s + v, 0) + pvTVExit;
+  const evExit = sumPVFCFs + pvTVExit;
 
   // Method B: Gordon Growth
-  const termUFCF = termYear.ufcf;
-  const tvGordon = (wacc > terminalGrowth && termUFCF > 0)
-    ? (termUFCF * (1 + terminalGrowth)) / (wacc - terminalGrowth) : 0;
+  const terminalUFCF = termYear.ufcf;
+  const tvGordon = (wacc > terminalGrowth && terminalUFCF > 0)
+    ? (terminalUFCF * (1 + terminalGrowth)) / (wacc - terminalGrowth) : 0;
   const pvTVGordon = tvGordon / Math.pow(1 + wacc, holdPeriod);
-  const evGordon = pvFCFs.reduce((s, v) => s + v, 0) + pvTVGordon;
+  const evGordon = sumPVFCFs + pvTVGordon;
 
-  // Primary DCF uses exit multiple method (for backward compat)
+  // Enterprise & Equity Values
+  const eqValExit = evExit - debtInitial;
+  const eqValGordon = evGordon - debtAtExit;
+  const impliedMultiple = tE > 0 ? evExit / tE : 0;
+
+  // Backward compat aliases
   const ev = evExit;
   const pvTV = pvTVExit;
-  const eqVal = ev - debtInitial;
-  const implM = tE > 0 ? ev / tE : 0;
+  const eqVal = eqValExit;
+  const implM = impliedMultiple;
 
   // ── Chart data ──
   const chart = years.filter(yr => yr.year > 0).map((yr) => ({
@@ -766,18 +778,28 @@ export function runModel(inputs) {
   }));
 
   return {
-    years, stab, ti, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
-    debt: debtInitial, debtAtExit, eq, intAnn: debtInitial * costOfDebt,
+    // ── Spec-named outputs (Section 9) ──
+    years, wacc, ke, kdAfterTax,
+    totalInvestment: ti, debtInitial, equity: eq, debtAtExit,
+    pvFCFs, sumPVFCFs,
+    tvExitMult, pvTVExit, evExit, eqValExit, impliedMultiple,
+    tvGordon, pvTVGordon, evGordon, eqValGordon,
+    terminalEBITDA: tE, terminalUFCF,
+    uIRR, lIRR, realUIRR, realLIRR,
+    equityMultiple, paybackPeriod: pb,
+
+    // ── Additional model outputs ──
+    stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
     totalUses, doeGrantAmt, txnFeesAmt,
-    y1ButlerEBITDA, uIRR, lIRR, realUIRR, realLIRR,
-    eqM, pb, tv, tE, chart,
-    ev, eqVal, pvTV, pvFCFs, pvTVGordon, tvGordon, evGordon,
-    tvExitMult, implM, wacc, ke, kdAfterTax, termUFCF,
-    greenfieldCapex: effGfCapex, workingCapital, pensionLiability, goesStartUtil, goesTargetUtil, goesRampYears,
+    y1ButlerEBITDA, tv, chart, warnings,
+    greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
+    goesStartUtil, goesTargetUtil, goesRampYears,
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
-    txBaseGOESDemand, // derived demand (for display in sidebar)
-    warnings,
-    // Backward compat aliases
+    txBaseGOESDemand,
+
+    // ── Backward compat aliases (used by existing UI components) ──
+    ti, debt: debtInitial, eq, eqM: equityMultiple, pb, tE, termUFCF: terminalUFCF,
+    ev, eqVal, pvTV, implM, intAnn: debtInitial * costOfDebt,
     acqPrice: butlerAcqPrice, waccRate: wacc, tvDCF: tvGordon,
   };
 }
