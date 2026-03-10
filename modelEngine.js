@@ -141,9 +141,12 @@ const BASE = {
   // Debt Structure
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
-  // Sustaining Capex
-  butlerMaintCapex: 40, txMaintCapex: 25,
-  // Depreciation — step-up basis from acquisition
+  // Sustaining Capex — % of consolidated revenue (auto-scales with business)
+  maintCapexPct: 0.07, // 7% of revenue — maintenance capex
+  // D&A — % of revenue (default mode) or component-based (advanced mode)
+  daPctRevenue: 0.12, // 12% of revenue — captures step-up, greenfield, bonus dep, capitalized maintenance
+  useAdvancedDep: false, // false = use % of revenue; true = compute from components
+  // Advanced depreciation schedule (used when useAdvancedDep = true)
   acqDepreciablePct: 0.80, // % of acquisition price allocated to depreciable assets (PP&E + goodwill/intangibles; excludes land ~5%, NWC modeled separately)
   acqDepLife: 15, // Blended straight-line life (PP&E 10-20yr, goodwill/intangibles 15yr per §197)
   gfDepLife: 20, // Greenfield plant depreciation life
@@ -196,7 +199,7 @@ const OVERRIDES = {
     label: "Execution Risk",
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
     goesProductionCost: 3200, overheadPct: 0.09,
-    butlerMaintCapex: 50,
+    maintCapexPct: 0.09, daPctRevenue: 0.14,
     // TX existing — delayed integration, slower start
     txExistStartYear: 2,
     // TX greenfield — delayed, slow ramp, cost overruns
@@ -247,7 +250,7 @@ const OVERRIDES = {
     label: "Ops Excellence",
     goesStartUtil: 0.85, goesTargetUtil: 0.98, goesRampYears: 1,
     goesProductionCost: 2400, overheadPct: 0.05,
-    butlerMaintCapex: 35,
+    maintCapexPct: 0.05, daPctRevenue: 0.10,
     // TX greenfield — accelerated build, low costs, fast ramp
     txGfStartYear: 1, gfRampYears: 3,
     mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
@@ -276,7 +279,7 @@ const OVERRIDES = {
     label: "GOES Only",
     txExistEnabled: false, txGreenfieldEnabled: false,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0, captivePct: 0,
-    txMaintCapex: 0,
+    maintCapexPct: 0.08, daPctRevenue: 0.13,
     workingCapital: 75, ltv: 0.50,
     exitMultiple: 10, waccRate: 0.09,
   },
@@ -287,7 +290,7 @@ const OVERRIDES = {
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txGOESIntensity: 10,
     txAcqMultiple: 3.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
     mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
-    workingCapital: 200, exitMultiple: 14, txMaintCapex: 60,
+    workingCapital: 200, exitMultiple: 14, maintCapexPct: 0.07, daPctRevenue: 0.12,
   },
   deltaStar: {
     label: "Delta Star",
@@ -296,7 +299,7 @@ const OVERRIDES = {
     txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txGOESIntensity: 17,
     txAcqMultiple: 7.5, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
-    exitMultiple: 13, txMaintCapex: 20,
+    exitMultiple: 13, maintCapexPct: 0.06, daPctRevenue: 0.11,
   },
 };
 
@@ -371,8 +374,8 @@ export const MARKERS = {
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
   exitMultiple: { bear: 9, base: 10.5, bull: 16 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
-  butlerMaintCapex: { bear: 50, base: 40, bull: 35 },
-  txMaintCapex: { bear: 35, base: 25, bull: 15 },
+  maintCapexPct: { bear: 0.09, base: 0.07, bull: 0.05 },
+  daPctRevenue: { bear: 0.14, base: 0.12, bull: 0.10 },
   pensionLiability: { bear: 400, base: 0, bull: 0 },
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
@@ -443,7 +446,8 @@ export function runModel(inputs) {
     exitMultiple, holdPeriod, waccMode, waccRate,
     cpiRate, txPriceEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, cashSweepPct, butlerMaintCapex, txMaintCapex,
+    nwcPctRevenue, debtAmortYears, cashSweepPct, maintCapexPct,
+    daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
   } = p;
 
@@ -730,18 +734,36 @@ export function runModel(inputs) {
     if (y === gfCapexDeployYear && gfCapexDeployYear > 0) capexDeploy += effGfCapex;
 
     // Capex, D&A, taxes, FCF
-    const mc = (butlerMaintCapex + txMaintCapex) * cpiEsc;
-    // D&A: step-up depreciation gated on deployment year
-    // Butler depreciates from Y1. TX acquisition depreciates from txExistStartYear.
-    // Greenfield depreciates from txGfStartYear. Each only after asset is deployed.
-    const butlerDA = butlerAcqPrice * acqDepreciablePct / acqDepLife;
-    const txAcqDA = (effTxAcqPrice > 0 && y >= txExistStartYear) ? effTxAcqPrice * acqDepreciablePct / acqDepLife : 0;
-    const acqDA = butlerDA + txAcqDA;
-    const gfDA = (effGfCapex > 0 && gfDepLife > 0 && y >= txGfStartYear) ? effGfCapex / gfDepLife : 0;
-    const maintDA = mc * 0.5;
-    const da = acqDA + gfDA + maintDA;
+    // Maintenance capex as % of total consolidated revenue — auto-scales with business
+    const mc = totalRev * maintCapexPct;
+
+    // D&A: default mode uses % of revenue; advanced mode computes from components
+    // ASSUMPTION: 50% of maintenance capex is capitalized (in D&A), 50% is expensed.
+    // Both portions are fully tax-deductible — just through different accounting paths.
+    const MAINT_CAPITALIZATION_RATE = 0.50;
+    let da, acqDA = 0, gfDA = 0, maintDA = 0;
+    if (useAdvancedDep) {
+      // Advanced: component-based depreciation schedule
+      // Step-up depreciation on acquisition basis (§338(h)(10) / §754 election)
+      const butlerDA = butlerAcqPrice * acqDepreciablePct / acqDepLife;
+      const txAcqDA = (effTxAcqPrice > 0 && y >= txExistStartYear) ? effTxAcqPrice * acqDepreciablePct / acqDepLife : 0;
+      acqDA = butlerDA + txAcqDA;
+      gfDA = (effGfCapex > 0 && gfDepLife > 0 && y >= txGfStartYear) ? effGfCapex / gfDepLife : 0;
+      maintDA = mc * MAINT_CAPITALIZATION_RATE;
+      da = acqDA + gfDA + maintDA;
+    } else {
+      // Simplified: D&A as % of revenue — standard PE screening approach
+      // Implicitly captures step-up, greenfield, bonus dep, and capitalized maintenance
+      da = totalRev * daPctRevenue;
+    }
+
+    // Tax calculation: EBIT must reflect ALL tax-deductible expenses.
+    // D&A is non-cash but tax-deductible (reduces EBIT).
+    // The expensed portion of maintenance capex (routine repairs) is ALSO tax-deductible
+    // but NOT in D&A — we must deduct it separately to compute correct taxable income.
+    const maintExpensed = mc * (1 - MAINT_CAPITALIZATION_RATE);
     const intAnn = debtBal * costOfDebt;
-    const ebit = totalEBITDA - da;
+    const ebit = totalEBITDA - da - maintExpensed;
     // Unlevered tax (no interest deduction) — used for UFCF and DCF
     const tax = Math.max(0, ebit * TAX_RATE);
     const ufcf = totalEBITDA - mc - tax - deltaNWC;
@@ -782,7 +804,7 @@ export function runModel(inputs) {
       // Consolidated
       totalRev, totalEBITDA, margin,
       capexDeploy,
-      nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
+      nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
       debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
@@ -920,7 +942,7 @@ function zeroYear() {
     "txTotalRev", "txTotalEBITDA", "txMargin", "totalCaptiveAdv",
     "totalRev", "totalEBITDA", "margin",
     "capexDeploy",
-    "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
+    "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
     "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
   ];
