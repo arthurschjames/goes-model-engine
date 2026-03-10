@@ -556,9 +556,10 @@ export function runModel(inputs) {
   // that reduces IRR — if the buyer wants to discount for it at entry, they
   // adjust the entry multiple. This ensures higher duopolyImpact → lower IRR.
   // Y1 EBITDA uses starting utilization (current operations) for entry valuation
-  const y1DoeBlend = doeOn ? Math.min(1, Math.max(0, (1 - doeYear + 1) / DOE_RAMP_YEARS)) : 0;
+  // DOE benefit is excluded from entry valuation — the grant is unlocked
+  // post-acquisition, so the seller prices on pre-DOE economics.
   const y1Prod = NAMEPLATE * goesStartUtil;
-  const y1PC = goesProductionCost - (DOE_SAVINGS_PER_TON * y1DoeBlend);
+  const y1PC = goesProductionCost;
   const y1MP = goesPrice; // Entry valuation at current market price
   const y1DodT = dodOn ? DOD_TONS : 0;
   const y1TPT = Math.max(0, y1Prod - y1DodT);
