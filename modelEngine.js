@@ -107,7 +107,7 @@ const BASE = {
   overheadPct: 0.07, // SGA/overhead as % of Steel Mill revenue (replaces fixed $M)
   nonGoesRevenue: 120, nonGoesMargin: 0.15,
   // TX Existing Business — $500M MPT company acquisition
-  txExistEnabled: true, txExistStartYear: 1,
+  txExistEnabled: true, txExistStartYear: 2,
   txBaseRevenue: 500, txBaseEBITDAMargin: 0.125,
   // GOES demand mode: "intensity" derives tons from revenue × ratio;
   // "units" uses explicit unit count × GOES/unit (mirrors greenfield approach)
@@ -397,7 +397,7 @@ export const MARKERS = {
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
   txPriceEscalation: { bear: 0.03, base: 0.05, bull: 0.07 },
-  txExistStartYear: { bear: 2, base: 1, bull: 1 },
+  txExistStartYear: { bear: 3, base: 2, bull: 1 },
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
   txBaseEBITDAMargin: { bear: 0.10, base: 0.125, bull: 0.15 },
