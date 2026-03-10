@@ -2,8 +2,19 @@
 // Pure financial model logic — no React, no UI.
 // Implements GOES-to-Transformer financial model per SPEC_v2 + Addendum v2.
 
-// ─── IRR Solver (Newton-Raphson) ────────────────────────────────────────────
-export function calculateIRR(cashflows, guess = 0.12) {
+// ─── IRR Solver ─────────────────────────────────────────────────────────────
+// Multi-strategy solver: Newton-Raphson with multiple initial guesses, then
+// bisection fallback. Handles cashflow series with multiple sign changes
+// (e.g., deferred capex creating mid-hold outflows) where a single Newton
+// guess may find the wrong root or diverge.
+
+function _npv(cashflows, rate) {
+  let npv = 0;
+  for (let t = 0; t < cashflows.length; t++) npv += cashflows[t] / Math.pow(1 + rate, t);
+  return npv;
+}
+
+function _newtonRaphsonIRR(cashflows, guess) {
   let rate = guess;
   for (let i = 0; i < 2000; i++) {
     let npv = 0, dnpv = 0;
@@ -19,6 +30,40 @@ export function calculateIRR(cashflows, guess = 0.12) {
     rate = next;
   }
   return null;
+}
+
+function _bisectionIRR(cashflows, lo, hi, tol = 0.0001, maxIter = 100) {
+  let fLo = _npv(cashflows, lo);
+  let fHi = _npv(cashflows, hi);
+  if (fLo * fHi > 0) return null; // no root in interval
+  for (let i = 0; i < maxIter; i++) {
+    const mid = (lo + hi) / 2;
+    const fMid = _npv(cashflows, mid);
+    if (Math.abs(fMid) < tol || (hi - lo) / 2 < tol) return mid;
+    if (fLo * fMid < 0) { hi = mid; fHi = fMid; }
+    else { lo = mid; fLo = fMid; }
+  }
+  return (lo + hi) / 2;
+}
+
+export function calculateIRR(cashflows) {
+  // Try multiple initial guesses with Newton-Raphson
+  const guesses = [-0.5, -0.2, 0.0, 0.05, 0.10, 0.15, 0.25, 0.40, 0.75, 1.5];
+  const roots = [];
+  for (const g of guesses) {
+    const r = _newtonRaphsonIRR(cashflows, g);
+    if (r != null && !roots.some(existing => Math.abs(existing - r) < 0.001)) {
+      roots.push(r);
+    }
+  }
+  if (roots.length === 1) return roots[0];
+  if (roots.length > 1) {
+    // Multiple roots found — prefer the one closest to typical PE returns (15%)
+    roots.sort((a, b) => Math.abs(a - 0.15) - Math.abs(b - 0.15));
+    return roots[0];
+  }
+  // Newton failed — try bisection on [-0.9, 5.0]
+  return _bisectionIRR(cashflows, -0.9, 5.0, 0.0001, 100);
 }
 
 // ─── Formatting Helpers ─────────────────────────────────────────────────────
@@ -474,14 +519,30 @@ export function runModel(inputs) {
   const y1SegRev = y1GoesRev + nonGoesRevenue;
   const y1ButlerEBITDA = y1GoesGP + y1NonGoesGP - (y1SegRev * overheadPct);
 
-  // ── Sources & Uses ── (Transformer acq/capex zeroed if segment disabled)
+  // ── Sources & Uses — timing-aware capital deployment ──
+  // Butler + WC + pension + fees always deploy at Y0.
+  // TX acquisition deploys at txExistStartYear - 1 (bolt-on closes one year before EBITDA).
+  // Greenfield capex deploys at txGfStartYear - 1 (construction before production).
+  // When start year is 1, deploy year = 0 (simultaneous close).
   const butlerAcqPrice = Math.round(entryMultiple * Math.max(y1ButlerEBITDA, 50));
   const effTxAcqPrice = txExistActive ? txAcqPrice : 0;
   const effGfCapex = txGfActive ? greenfieldCapex : 0;
   const txnFeesAmt = (butlerAcqPrice + effTxAcqPrice) * txnFees;
-  const totalUses = butlerAcqPrice + effTxAcqPrice + effGfCapex + workingCapital + pensionLiability + txnFeesAmt;
   const doeGrantAmt = doeOn ? DOE_GRANT_AMOUNT : 0;
+
+  // Deployment years (floored to 0)
+  const txAcqDeployYear = txExistActive ? Math.max(0, txExistStartYear - 1) : 0;
+  const gfCapexDeployYear = txGfActive ? Math.max(0, txGfStartYear - 1) : 0;
+
+  // Y0 uses: items deployed at close
+  const y0Uses = butlerAcqPrice + workingCapital + pensionLiability + txnFeesAmt
+    + (txAcqDeployYear === 0 ? effTxAcqPrice : 0)
+    + (gfCapexDeployYear === 0 ? effGfCapex : 0);
+
+  // Total lifetime uses (for display and debt sizing)
+  const totalUses = butlerAcqPrice + effTxAcqPrice + effGfCapex + workingCapital + pensionLiability + txnFeesAmt;
   const ti = totalUses - doeGrantAmt;
+  // Debt sized on total lifetime investment (delayed-draw term loan for deferred needs)
   const debtInitial = ti * ltv;
   const eq = ti - debtInitial;
   // Scheduled annual amortization (0 if interest-only)
@@ -515,10 +576,23 @@ export function runModel(inputs) {
   if (eq <= 0) warnings.push("Equity ≤ 0 — equity multiple is meaningless.");
   if (txGfActive && greenfieldCapex > 0 && mpUnits === 0 && distUnits === 0) warnings.push("Greenfield capex allocated but no transformer units specified.");
   if (txPriceEscalation > cpiRate * 3) warnings.push(`Transformer price escalation (${fmtPct(txPriceEscalation)}) significantly exceeds CPI (${fmtPct(cpiRate)}) — verify long-term sustainability.`);
+  if (txAcqDeployYear > holdPeriod) warnings.push(`TX acquisition deployment (Y${txAcqDeployYear}) is beyond the ${holdPeriod}-year hold period.`);
+  if (txGfActive && gfCapexDeployYear > holdPeriod) warnings.push(`Greenfield capex deployment (Y${gfCapexDeployYear}) is beyond the ${holdPeriod}-year hold period.`);
+  // Greenfield ramp vs hold period warning
+  if (txGfActive && gfRampYears > 0) {
+    const fullRampYear = (txGfStartYear || 1) + gfRampYears;
+    const yearsAtScale = holdPeriod - fullRampYear;
+    if (yearsAtScale <= 2 && yearsAtScale >= 0) {
+      warnings.push(`Greenfield reaches full capacity at Y${fullRampYear} — only ${yearsAtScale} year${yearsAtScale !== 1 ? "s" : ""} at full scale before exit.`);
+    } else if (yearsAtScale < 0) {
+      warnings.push(`Greenfield doesn't reach full capacity until Y${fullRampYear} — after the ${holdPeriod}-year hold period ends.`);
+    }
+  }
 
   // ── Year-by-year projections ──
   const years = [];
   let cumUFCF = 0;
+  let cumLFCF = 0;
   let prevNWC = workingCapital; // Initialize to closing NWC so Y1 deltaNWC only captures incremental change
   let debtBal = debtInitial; // Remaining debt balance (decreases with amort + sweep)
 
@@ -650,11 +724,20 @@ export function runModel(inputs) {
     const deltaNWC = nwc - prevNWC;
     prevNWC = nwc;
 
+    // Growth / acquisition capex deployed in this year
+    let capexDeploy = 0;
+    if (y === txAcqDeployYear && txAcqDeployYear > 0) capexDeploy += effTxAcqPrice;
+    if (y === gfCapexDeployYear && gfCapexDeployYear > 0) capexDeploy += effGfCapex;
+
     // Capex, D&A, taxes, FCF
     const mc = (butlerMaintCapex + txMaintCapex) * cpiEsc;
-    // D&A: step-up depreciation on acquisition basis + greenfield capex + maintenance
-    const acqDA = (butlerAcqPrice + effTxAcqPrice) * acqDepreciablePct / acqDepLife;
-    const gfDA = effGfCapex > 0 && gfDepLife > 0 ? effGfCapex / gfDepLife : 0;
+    // D&A: step-up depreciation gated on deployment year
+    // Butler depreciates from Y1. TX acquisition depreciates from txExistStartYear.
+    // Greenfield depreciates from txGfStartYear. Each only after asset is deployed.
+    const butlerDA = butlerAcqPrice * acqDepreciablePct / acqDepLife;
+    const txAcqDA = (effTxAcqPrice > 0 && y >= txExistStartYear) ? effTxAcqPrice * acqDepreciablePct / acqDepLife : 0;
+    const acqDA = butlerDA + txAcqDA;
+    const gfDA = (effGfCapex > 0 && gfDepLife > 0 && y >= txGfStartYear) ? effGfCapex / gfDepLife : 0;
     const maintDA = mc * 0.5;
     const da = acqDA + gfDA + maintDA;
     const intAnn = debtBal * costOfDebt;
@@ -673,6 +756,10 @@ export function runModel(inputs) {
     debtBal = Math.max(0, debtBal - totalPrincipal);
     const lfcf = totalEBITDA - mc - taxLevered - intAnn - totalPrincipal - deltaNWC;
     cumUFCF += ufcf;
+    cumLFCF += lfcf;
+    // Equity return metrics: cash-on-cash yield and DPI (distributions to paid-in)
+    const cashOnCash = eq > 0 ? lfcf / eq : 0;
+    const dpi = eq > 0 ? cumLFCF / eq : 0;
 
     years.push({
       year: y, rp, duo, duoBlend, doeActive, doeBlend, dodActive, captiveCapped, utilY,
@@ -694,8 +781,9 @@ export function runModel(inputs) {
       txTotalRev, txTotalEBITDA, txMargin, totalCaptiveAdv,
       // Consolidated
       totalRev, totalEBITDA, margin,
+      capexDeploy,
       nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, amort, sweep, totalPrincipal, cumUFCF: cumUFCF,
+      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
@@ -709,8 +797,18 @@ export function runModel(inputs) {
   // Remaining debt at exit (after amortization + sweeps over hold period)
   const debtAtExit = termYear.debtBal;
 
-  // IRR (nominal)
-  const uCFs = years.map((yr, i) => i === 0 ? -ti : i === holdPeriod ? yr.ufcf + tv : yr.ufcf);
+  // IRR (nominal) — timing-aware capital deployment
+  // Unlevered: Y0 gets only items deployed at close; deferred capex appears in its deploy year
+  const uCFs = years.map((yr, i) => {
+    let cf = i === 0 ? -(y0Uses - doeGrantAmt) : yr.ufcf;
+    // Deferred capital outflows in their deployment year
+    if (i > 0 && i === txAcqDeployYear) cf -= effTxAcqPrice;
+    if (i > 0 && i === gfCapexDeployYear) cf -= effGfCapex;
+    if (i === holdPeriod) cf += tv;
+    return cf;
+  });
+  // Levered: all debt/equity raised at Y0 (delayed-draw structure), so lCFs[0] = -eq
+  // Deferred capex is funded from the committed facility, no additional equity calls
   const lCFs = years.map((yr, i) => i === 0 ? -eq : i === holdPeriod ? yr.lfcf + tv - debtAtExit : yr.lfcf);
   const uIRR = calculateIRR(uCFs);
   const lIRR = calculateIRR(lCFs);
@@ -723,13 +821,13 @@ export function runModel(inputs) {
   const tDist = years.reduce((s, yr) => s + yr.lfcf, 0) + tv - debtAtExit;
   const equityMultiple = eq > 0 ? tDist / eq : 0;
 
-  // Payback period
-  let cum = -ti, pb = null;
-  for (let i = 1; i <= holdPeriod; i++) {
-    cum += years[i].ufcf;
-    if (cum >= 0 && pb === null) {
-      const prev = cum - years[i].ufcf;
-      pb = i - 1 + (-prev) / years[i].ufcf;
+  // Payback period — uses timing-aware cashflows
+  let cum = 0, pb = null;
+  for (let i = 0; i <= holdPeriod; i++) {
+    cum += uCFs[i];
+    if (cum >= 0 && pb === null && i > 0) {
+      const prev = cum - uCFs[i];
+      pb = i - 1 + (-prev) / uCFs[i];
     }
   }
 
@@ -790,7 +888,8 @@ export function runModel(inputs) {
 
     // ── Additional model outputs ──
     stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
-    totalUses, doeGrantAmt, txnFeesAmt,
+    totalUses, y0Uses, doeGrantAmt, txnFeesAmt,
+    txAcqDeployYear, gfCapexDeployYear, uCFs,
     y1ButlerEBITDA, tv, chart, warnings,
     greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
     goesStartUtil, goesTargetUtil, goesRampYears,
@@ -820,8 +919,9 @@ function zeroYear() {
     "txNCRevY", "txNCEBITDA",
     "txTotalRev", "txTotalEBITDA", "txMargin", "totalCaptiveAdv",
     "totalRev", "totalEBITDA", "margin",
+    "capexDeploy",
     "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
-    "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF",
+    "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
   ];
   for (const k of numKeys) z[k] = 0;
