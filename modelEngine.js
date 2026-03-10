@@ -155,6 +155,11 @@ const BASE = {
   acqDepreciablePct: 0.80, // % of acquisition price allocated to depreciable assets (PP&E + goodwill/intangibles; excludes land ~5%, NWC modeled separately)
   acqDepLife: 15, // Blended straight-line life (PP&E 10-20yr, goodwill/intangibles 15yr per §197)
   gfDepLife: 20, // Greenfield plant depreciation life
+  // GP/LP Economics
+  mgmtFee: 0.015, // 1.5% of committed equity per year
+  carryPct: 0.20, // 20% carried interest
+  preferredReturn: 0.08, // 8% preferred return hurdle
+  mgmtEquityPct: 0.10, // Management option pool — 10% dilution on sponsor equity
 };
 
 // ─── Scenario Overrides ─────────────────────────────────────────────────────
@@ -1010,6 +1015,48 @@ export function runModel(inputs) {
   const revCAGR = (y0Rev > 0 && tE > 0) ? Math.pow(termYear.totalRev / y0Rev, 1 / holdPeriod) - 1 : null;
   const ebitdaCAGR = (y0EBITDA > 0 && tE > 0) ? Math.pow(tE / y0EBITDA, 1 / holdPeriod) - 1 : null;
 
+  // ── Returns Attribution Waterfall ──
+  // Decomposes equity returns into PE standard buckets
+  const y1EBITDA = years[1] ? years[1].totalEBITDA : y1ButlerEBITDA;
+  const exitEV = tE * exitMultiple;
+  const ebitdaGrowthContrib = (tE - y1EBITDA) * entryMultiple;
+  const multipleContrib = (exitMultiple - entryMultiple) * tE;
+  const debtPaydownContrib = debtInitial - debtAtExit;
+  const cumPositiveLFCF = years.reduce((s, yr) => s + Math.max(0, yr.lfcf), 0);
+  const exitEquity = tv - debtAtExit + cumLFCF;
+  const returnsAttribution = {
+    entryEquity: eq,
+    exitEV,
+    ebitdaGrowthContrib,
+    multipleContrib,
+    debtPaydownContrib,
+    cumFCF: cumPositiveLFCF,
+    exitEquity,
+  };
+
+  // ── GP/LP Economics (European waterfall) ──
+  const { mgmtFee, carryPct, preferredReturn, mgmtEquityPct } = p;
+  const totalMgmtFees = mgmtFee * eq * holdPeriod;
+  const totalDistributions = tDist; // total distributions to equity (already computed above)
+  const mgmtDilution = totalDistributions * mgmtEquityPct;
+  const netDistributions = totalDistributions - mgmtDilution;
+  const lpPreferredReturn = eq * (Math.pow(1 + preferredReturn, holdPeriod) - 1);
+  const profitAbovePreferred = Math.max(0, netDistributions - totalMgmtFees - eq - lpPreferredReturn);
+  const carry = profitAbovePreferred * carryPct;
+  const netToLP = netDistributions - totalMgmtFees - carry;
+  const netLPMOIC = eq > 0 ? netToLP / eq : 0;
+  // Net LP IRR: construct cash flow series with fees/carry deducted at exit
+  const lpCFs = years.map((_, i) => i === 0 ? -eq : i === holdPeriod ? netToLP : 0);
+  const netLPIRR = calculateIRR(lpCFs);
+  const gpLp = {
+    totalFees: totalMgmtFees,
+    carry,
+    netToLP,
+    netLPMOIC,
+    netLPIRR,
+    mgmtDilution,
+  };
+
   // ── Chart data ──
   const chart = years.filter(yr => yr.year > 0).map((yr) => ({
     name: `Y${yr.year}`,
@@ -1044,6 +1091,12 @@ export function runModel(inputs) {
     revCAGR, ebitdaCAGR,
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
     txBaseGOESDemand,
+
+    // ── Returns Attribution ──
+    returnsAttribution,
+
+    // ── GP/LP Economics ──
+    gpLp,
 
     // ── Backward compat aliases (used by existing UI components) ──
     ti, debt: debtInitial, eq, eqM: equityMultiple, pb, tE, termUFCF: terminalUFCF,
