@@ -167,7 +167,7 @@ const BASE = {
 // Upside clusters:
 //   strongMkt — pricing tailwinds & delayed competition
 //   opsExcel  — operational outperformance & cost efficiency
-//   favDeal   — favorable entry/exit & financing
+//   favDeal   — best-case deal structure (entry/exit & financing)
 //
 // Each themed scenario is individually plausible: the probability of ONE cluster
 // going wrong/right is meaningful, unlike every variable simultaneously at extremes.
@@ -263,12 +263,12 @@ const OVERRIDES = {
     cpiRate: 0.020,
   },
 
-  // ── Upside: Favorable Deal ─────────────────────────────────────────────────
+  // ── Upside: Best-Case Deal Structure ───────────────────────────────────────
   // Stress: cheap entry, rich exit, good leverage terms, bargain TX acquisition
-  // Unchanged: operations, market pricing
+  // Unchanged: operations, market pricing (base operations assumed)
   favDeal: {
-    label: "Favorable Deal",
-    entryMultiple: 7.0, exitMultiple: 16,
+    label: "Best-Case Deal",
+    entryMultiple: 7.0, exitMultiple: 13,
     ltv: 0.60, costOfDebt: 0.065,
     // TX acquisition — bargain price in distressed / off-market deal
     txAcqMultiple: 11,
@@ -328,7 +328,7 @@ export const SCENARIO_KEYS = [
 export const SCENARIO_LABELS = {
   weakMkt: "Weak Market", execRisk: "Execution Risk", advFin: "Adverse Financing",
   base: "Base Case",
-  strongMkt: "Strong Market", opsExcel: "Ops Excellence", favDeal: "Favorable Deal",
+  strongMkt: "Strong Market", opsExcel: "Ops Excellence", favDeal: "Best-Case Deal",
   goesOnly: "GOES Only", vtc: "VTC Acquisition", deltaStar: "Delta Star",
 };
 
@@ -374,7 +374,7 @@ export const MARKERS = {
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
-  exitMultiple: { bear: 9, base: 10.5, bull: 16 },
+  exitMultiple: { bear: 9, base: 10.5, bull: 13 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
   maintCapexPct: { bear: 0.09, base: 0.07, bull: 0.05 },
   daPctRevenue: { bear: 0.14, base: 0.12, bull: 0.10 },
