@@ -602,7 +602,32 @@ export function runModel(inputs) {
 
   for (let y = 0; y <= holdPeriod; y++) {
     if (y === 0) {
-      years.push(zeroYear());
+      // Y0 = Entry Basis: normalized P&L at starting utilization & current pricing.
+      // This is the earnings profile the acquisition price is based on.
+      // Standalone Steel Mill only — no TX segment at entry.
+      const z = zeroYear();
+      z.utilY = goesStartUtil;
+      z.production = y1Prod;
+      z.prodCost = y1PC;
+      z.mktPrice = y1MP;
+      z.dodTons = y1DodT;
+      z.thirdPartyTons = y1TPT;
+      z.dodRevenue = (y1DodT * DOD_PRICE) / 1e6;
+      z.thirdPartyRevenue = (y1TPT * y1MP) / 1e6;
+      z.goesExtRev = y1GoesRev;
+      z.nonGoesRevY = nonGoesRevenue;
+      z.goesCOGS = y1GoesCOGS;
+      z.goesGP = y1GoesGP;
+      z.nonGoesGP = y1NonGoesGP;
+      z.goesSegRev = y1SegRev;
+      z.overheadY = y1SegRev * overheadPct;
+      z.goesEBITDA = y1ButlerEBITDA;
+      z.goesMargin = y1SegRev > 0 ? y1ButlerEBITDA / y1SegRev : 0;
+      z.totalRev = y1SegRev;
+      z.totalEBITDA = y1ButlerEBITDA;
+      z.margin = y1SegRev > 0 ? y1ButlerEBITDA / y1SegRev : 0;
+      z.debtBal = debtInitial;
+      years.push(z);
       continue;
     }
 
@@ -884,6 +909,12 @@ export function runModel(inputs) {
   const eqVal = eqValExit;
   const implM = impliedMultiple;
 
+  // ── CAGRs (entry basis → terminal) ──
+  const y0Rev = years[0].totalRev;
+  const y0EBITDA = years[0].totalEBITDA;
+  const revCAGR = (y0Rev > 0 && tE > 0) ? Math.pow(termYear.totalRev / y0Rev, 1 / holdPeriod) - 1 : null;
+  const ebitdaCAGR = (y0EBITDA > 0 && tE > 0) ? Math.pow(tE / y0EBITDA, 1 / holdPeriod) - 1 : null;
+
   // ── Chart data ──
   const chart = years.filter(yr => yr.year > 0).map((yr) => ({
     name: `Y${yr.year}`,
@@ -915,6 +946,7 @@ export function runModel(inputs) {
     y1ButlerEBITDA, tv, chart, warnings,
     greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
     goesStartUtil, goesTargetUtil, goesRampYears,
+    revCAGR, ebitdaCAGR,
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
     txBaseGOESDemand,
 
