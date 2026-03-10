@@ -469,7 +469,7 @@ export function runModel(inputs) {
   const p = { ...BASE, ...inputs };
   const {
     goesProductionCost,
-    nipponYear, dodOn, dodRenewal, doeOn, doeYear,
+    nipponYear, dodRenewal, doeOn, doeYear,
     goesPriceInflation, overheadPct,
     nonGoesRevenue, nonGoesMargin,
     txExistEnabled, txExistStartYear, txBaseRevenue, txBaseEBITDAMargin,
@@ -561,7 +561,7 @@ export function runModel(inputs) {
   const y1Prod = NAMEPLATE * goesStartUtil;
   const y1PC = goesProductionCost;
   const y1MP = goesPrice; // Entry valuation at current market price
-  const y1DodT = dodOn ? DOD_TONS : 0;
+  const y1DodT = DOD_TONS; // DOD contract is signed — always active
   const y1TPT = Math.max(0, y1Prod - y1DodT);
   const y1GoesRev = (y1TPT * y1MP + y1DodT * DOD_PRICE) / 1e6;
   const y1GoesCOGS = (y1Prod * y1PC) / 1e6;
@@ -612,7 +612,7 @@ export function runModel(inputs) {
   }
   {
     const prod = NAMEPLATE * goesTargetUtil;
-    const dodT = dodOn ? DOD_TONS : 0;
+    const dodT = DOD_TONS;
     const spare = Math.max(0, prod - dodT);
     const txDemand = (txGfActive ? mpUnits * goesPerMP + distUnits * goesPerDist : 0) + (txExistActive ? txBaseGOESDemand : 0);
     const captiveDemand = txDemand * captivePct;
@@ -738,7 +738,7 @@ export function runModel(inputs) {
     const prodCost = (fixedPerTon + variablePerTon - DOE_SAVINGS_PER_TON * doeBlend) * cpiEsc;
 
     // DOD
-    const dodActive = dodOn && (y <= 5 || dodRenewal);
+    const dodActive = y <= 5 || dodRenewal;
     const dodTons = dodActive ? DOD_TONS : 0;
 
     // Transformer GOES demand (respects enable toggles + start years)
