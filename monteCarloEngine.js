@@ -2,32 +2,120 @@
 // Pure JS — no React, no DOM. Designed to run in a Web Worker.
 // Provides distribution sampling, simulation orchestration, and statistical analysis.
 
-// ─── Random Sampling ───────────────────────────────────────────────────────
+// ─── Standard Normal CDF & Inverse CDF ──────────────────────────────────────
 
-/** Triangular distribution: min, mode, max */
-function sampleTriangular(min, mode, max) {
-  const u = Math.random();
+/** Standard normal CDF using rational approximation (Abramowitz & Stegun 26.2.17) */
+function normalCDF(x) {
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+
+  const sign = x < 0 ? -1 : 1;
+  const absX = Math.abs(x);
+  const t = 1.0 / (1.0 + p * absX);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2);
+  return 0.5 * (1.0 + sign * y);
+}
+
+/** Sample standard normal using Box-Muller transform */
+function sampleStdNormal() {
+  let u1, u2;
+  do { u1 = Math.random(); } while (u1 === 0);
+  u2 = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+}
+
+// ─── Inverse CDF Functions ──────────────────────────────────────────────────
+
+/** Inverse CDF for uniform distribution */
+function inverseCDFUniform(u, min, max) {
+  return min + u * (max - min);
+}
+
+/** Inverse CDF for triangular distribution */
+function inverseCDFTriangular(u, min, mode, max) {
   const fc = (mode - min) / (max - min);
   if (u < fc) return min + Math.sqrt(u * (max - min) * (mode - min));
   return max - Math.sqrt((1 - u) * (max - min) * (max - mode));
 }
 
-/** Uniform distribution: min, max */
-function sampleUniform(min, max) {
-  return min + Math.random() * (max - min);
+/** Inverse CDF for discrete uniform distribution */
+function inverseCDFDiscreteUniform(u, min, max) {
+  return Math.floor(min + u * (max - min + 1));
 }
 
-/** Discrete uniform: min, max (inclusive integers) */
-function sampleDiscreteUniform(min, max) {
-  return Math.floor(min + Math.random() * (max - min + 1));
-}
-
-/** Sample from a variable config */
-function sampleVariable(config) {
+/** Transform a uniform [0,1] value to the target distribution */
+function inverseCDFVariable(u, config) {
+  const clampedU = Math.max(1e-10, Math.min(1 - 1e-10, u));
   const { distribution, min, max, mode } = config;
-  if (distribution === "triangular") return sampleTriangular(min, mode, max);
-  if (distribution === "discrete_uniform") return sampleDiscreteUniform(min, max);
-  return sampleUniform(min, max);
+  if (distribution === "triangular") return inverseCDFTriangular(clampedU, min, mode, max);
+  if (distribution === "discrete_uniform") return inverseCDFDiscreteUniform(clampedU, min, max);
+  return inverseCDFUniform(clampedU, min, max);
+}
+
+// ─── Cholesky Decomposition ─────────────────────────────────────────────────
+
+/**
+ * Cholesky decomposition of a symmetric positive-definite matrix.
+ * Returns the lower triangular matrix L such that L * L^T = A.
+ * @param {number[][]} A - n×n symmetric positive-definite matrix
+ * @returns {number[][]} L - lower triangular matrix
+ */
+export function choleskyDecompose(A) {
+  const n = A.length;
+  const L = Array.from({ length: n }, () => new Array(n).fill(0));
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= i; j++) {
+      let sum = 0;
+      for (let k = 0; k < j; k++) {
+        sum += L[i][k] * L[j][k];
+      }
+      if (i === j) {
+        const diag = A[i][i] - sum;
+        L[i][j] = Math.sqrt(Math.max(0, diag));
+      } else {
+        L[i][j] = L[j][j] !== 0 ? (A[i][j] - sum) / L[j][j] : 0;
+      }
+    }
+  }
+  return L;
+}
+
+// ─── Default Correlations ───────────────────────────────────────────────────
+
+export const DEFAULT_CORRELATIONS = {
+  "goesPrice|goesProductionCost": 0.4,
+  "entryMultiple|exitMultiple": 0.6,
+  "duopolyImpact|goesPrice": -0.3,
+};
+
+/**
+ * Build an n×n correlation matrix for the given variable keys using the
+ * provided correlation map. Keys in the correlation map are "varA|varB"
+ * with alphabetically sorted variable keys.
+ */
+function buildCorrelationMatrix(keys, correlations) {
+  const n = keys.length;
+  const matrix = Array.from({ length: n }, () => new Array(n).fill(0));
+
+  // Identity diagonal
+  for (let i = 0; i < n; i++) matrix[i][i] = 1;
+
+  // Fill off-diagonal from correlation map
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const pairKey1 = `${keys[i]}|${keys[j]}`;
+      const pairKey2 = `${keys[j]}|${keys[i]}`;
+      const rho = correlations[pairKey1] ?? correlations[pairKey2] ?? 0;
+      matrix[i][j] = rho;
+      matrix[j][i] = rho;
+    }
+  }
+  return matrix;
 }
 
 // ─── Default Monte Carlo Variable Configurations ───────────────────────────
@@ -89,6 +177,27 @@ export const MC_DEFAULTS = {
     min: 175, mode: 225, max: 275,
     format: "dollarM",
   },
+  txPriceEscalation: {
+    label: "TX Price Escalation",
+    key: "txPriceEscalation",
+    distribution: "triangular",
+    min: 0.03, mode: 0.07, max: 0.12,
+    format: "pct",
+  },
+  txBaseEBITDAMargin: {
+    label: "TX Existing Margin",
+    key: "txBaseEBITDAMargin",
+    distribution: "triangular",
+    min: 0.08, mode: 0.125, max: 0.20,
+    format: "pct",
+  },
+  cpiRate: {
+    label: "CPI / Inflation",
+    key: "cpiRate",
+    distribution: "triangular",
+    min: 0.015, mode: 0.025, max: 0.045,
+    format: "pct",
+  },
 };
 
 export const MC_VARIABLE_KEYS = Object.keys(MC_DEFAULTS);
@@ -144,7 +253,7 @@ function percentile(sorted, p) {
  *   stats.probabilities: P(IRR >= threshold) for common thresholds
  *   correlations: Spearman rank correlations between each variable and IRR
  */
-export function runMonteCarlo(runModel, baseInputs, variableConfigs, n = 1000, onProgress = null) {
+export function runMonteCarlo(runModel, baseInputs, variableConfigs, n = 1000, onProgress = null, correlations = DEFAULT_CORRELATIONS) {
   const results = [];
   const sampledInputs = {}; // key -> array of sampled values
 
@@ -153,13 +262,33 @@ export function runMonteCarlo(runModel, baseInputs, variableConfigs, n = 1000, o
     sampledInputs[cfg.key] = [];
   }
 
+  // Build correlation matrix and Cholesky factor for enabled variables
+  const keys = variableConfigs.map(cfg => cfg.key);
+  const corrMatrix = buildCorrelationMatrix(keys, correlations);
+  const L = choleskyDecompose(corrMatrix);
+  const m = keys.length;
+
   for (let i = 0; i < n; i++) {
-    // Generate randomized inputs
+    // Generate correlated samples:
+    // 1. Sample independent standard normals
+    const z = new Array(m);
+    for (let k = 0; k < m; k++) z[k] = sampleStdNormal();
+
+    // 2. Apply Cholesky L to induce correlations: w = L * z
+    const w = new Array(m);
+    for (let row = 0; row < m; row++) {
+      let s = 0;
+      for (let col = 0; col <= row; col++) s += L[row][col] * z[col];
+      w[row] = s;
+    }
+
+    // 3. Transform correlated normals to target distributions via inverse CDF
     const iterInputs = { ...baseInputs };
-    for (const cfg of variableConfigs) {
-      const val = sampleVariable(cfg);
-      iterInputs[cfg.key] = val;
-      sampledInputs[cfg.key].push(val);
+    for (let k = 0; k < m; k++) {
+      const u = normalCDF(w[k]); // correlated uniform via Phi(w)
+      const val = inverseCDFVariable(u, variableConfigs[k]);
+      iterInputs[keys[k]] = val;
+      sampledInputs[keys[k]].push(val);
     }
 
     // Run model
