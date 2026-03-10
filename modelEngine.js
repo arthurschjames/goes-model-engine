@@ -133,7 +133,7 @@ const BASE = {
   // Returns
   exitMultiple: 10, holdPeriod: 10, waccRate: 0.082, waccMode: "manual",
   // Growth & Inflation
-  cpiRate: 0.025, txPriceEscalation: 0.06, terminalGrowth: 0.025,
+  cpiRate: 0.025, txPriceEscalation: 0.05, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
@@ -191,7 +191,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 40, txAcqNonCoreMargin: 0.17,
     // TX greenfield — moderate ASP compression, delayed start
     txGfStartYear: 3, gfRampYears: 5,
-    mpASP: 900000, distASP: 18000, txPriceEscalation: 0.04,
+    mpASP: 900000, distASP: 18000, txPriceEscalation: 0.03,
     mpUnits: 100,
     // Market-correlated: exit buyers pay less in weak narrative, less captive consumption
     exitMultiple: 9.5, captivePct: 0.85,
@@ -247,7 +247,7 @@ const OVERRIDES = {
     txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.25,
     // TX greenfield — early start, strong ASPs, larger scale
     txGfStartYear: 1, gfRampYears: 3, greenfieldCapex: 175,
-    mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.10,
+    mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.07,
     mpUnits: 200,
     // Exit — decade of secular tailwinds capitalized into valuations
     exitMultiple: 12,
@@ -393,7 +393,7 @@ export const MARKERS = {
   pensionLiability: { bear: 400, base: 0, bull: 0 },
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
-  txPriceEscalation: { bear: 0.04, base: 0.06, bull: 0.10 },
+  txPriceEscalation: { bear: 0.03, base: 0.05, bull: 0.07 },
   txExistStartYear: { bear: 2, base: 1, bull: 1 },
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
