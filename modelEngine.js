@@ -235,7 +235,8 @@ const OVERRIDES = {
 
   // ── Upside: Strong Market ──────────────────────────────────────────────────
   // Stress: GOES pricing up, competition delayed, DOE on, strong TX demand
-  // Unchanged: utilization ramp, costs, deal structure
+  // Cross-cluster: exit multiple (decade of strong fundamentals → elevated exit)
+  // Adjusted: greenfield capex (accelerated build premium), non-core margin (op leverage)
   strongMkt: {
     label: "Strong Market",
     goesPrice: 6500, duopolyImpact: 0.12, nipponYear: 7,
@@ -243,11 +244,13 @@ const OVERRIDES = {
     nonGoesRevenue: 150, nonGoesMargin: 0.18,
     // TX existing — strong backlog, higher margins from electrification boom
     txBaseRevenue: 600, txBaseEBITDAMargin: 0.15, txGOESIntensity: 17,
-    txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.22,
+    txAcqNonCoreRevenue: 75, txAcqNonCoreMargin: 0.25,
     // TX greenfield — early start, strong ASPs, larger scale
-    txGfStartYear: 1, gfRampYears: 3,
+    txGfStartYear: 1, gfRampYears: 3, greenfieldCapex: 175,
     mpASP: 1500000, distASP: 28000, txPriceEscalation: 0.10,
     mpUnits: 200,
+    // Exit — decade of secular tailwinds capitalized into valuations
+    exitMultiple: 12,
   },
 
   // ── Upside: Operational Excellence ─────────────────────────────────────────
@@ -398,7 +401,7 @@ export const MARKERS = {
   txGOESIntensity: { bear: 15, base: 16, bull: 17 },
   txAcqMultiple: { bear: 20, base: 15, bull: 10 },
   txAcqNonCoreRevenue: { bear: 35, base: 50, bull: 75 },
-  txAcqNonCoreMargin: { bear: 0.15, base: 0.20, bull: 0.22 },
+  txAcqNonCoreMargin: { bear: 0.15, base: 0.20, bull: 0.25 },
   gfRampYears: { bear: 5, base: 4, bull: 3 },
   terminalGrowth: { bear: 0.02, base: 0.025, bull: 0.03 },
   riskFreeRate: { bear: 0.045, base: 0.041, bull: 0.035 },
