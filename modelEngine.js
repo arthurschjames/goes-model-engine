@@ -85,7 +85,7 @@ export const DOE_TARGET_SAVINGS = 80; // $M/yr at full NAMEPLATE — $80M / 180K
 export const DOE_SAVINGS_PER_TON = DOE_TARGET_SAVINGS * 1e6 / NAMEPLATE; // ~$444.44/ton
 export const DOE_RAMP_YEARS = 2; // linear ramp from doeYear over 2 years
 // OVERHEAD_BASE removed — overhead is now overheadPct (% of revenue)
-export const FIXED_COST_SHARE = 0.35; // ~35% of production cost is fixed (labor, maintenance, facility)
+export const FIXED_COST_SHARE_DEFAULT = 0.40; // default ~40% of production cost is fixed (labor, maintenance, facility)
 export const TAX_RATE = 0.25;
 export const DOE_GRANT_AMOUNT = 75; // $M
 export const INTERNALIZE_FACTOR_DEFAULT = 0.50; // configurable via internalizeFactor input
@@ -144,6 +144,8 @@ const BASE = {
   debtAmortYears: 7, // Amortizing term loan — 0 = interest-only bullet
   cashSweepPct: 0, // % of excess FCF applied to mandatory debt repayment
   ddtlCommitmentFee: 0.005, // 50bps commitment fee on undrawn DDTL balance
+  // Cost Structure
+  fixedCostShare: 0.40, // % of GOES production cost that is fixed
   // Sustaining Capex — % of consolidated revenue (auto-scales with business)
   maintCapexPct: 0.07, // 7% of revenue — maintenance capex
   // D&A — % of revenue (default mode) or component-based (advanced mode)
@@ -204,7 +206,7 @@ const OVERRIDES = {
   execRisk: {
     label: "Execution Risk",
     goesStartUtil: 0.60, goesTargetUtil: 0.85, goesRampYears: 5,
-    goesProductionCost: 3200, overheadPct: 0.09,
+    goesProductionCost: 3200, overheadPct: 0.09, fixedCostShare: 0.50,
     maintCapexPct: 0.09, daPctRevenue: 0.14,
     // TX existing — delayed integration, slower start, margin spillover
     txExistStartYear: 2, txBaseEBITDAMargin: 0.11,
@@ -260,7 +262,7 @@ const OVERRIDES = {
   opsExcel: {
     label: "Ops Excellence",
     goesStartUtil: 0.85, goesTargetUtil: 0.95, goesRampYears: 1,
-    goesProductionCost: 2400, overheadPct: 0.05,
+    goesProductionCost: 2400, overheadPct: 0.05, fixedCostShare: 0.35,
     maintCapexPct: 0.06, daPctRevenue: 0.10,
     // TX greenfield — accelerated build, low costs, fast ramp
     txGfStartYear: 1, gfRampYears: 3,
@@ -465,7 +467,7 @@ export function runModel(inputs) {
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
     cpiRate, txPriceEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct,
+    nwcPctRevenue, debtAmortYears, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
     daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
   } = p;
@@ -551,6 +553,8 @@ export function runModel(inputs) {
   // TX acquisition deploys at txExistStartYear - 1 (bolt-on closes one year before EBITDA).
   // Greenfield capex deploys at txGfStartYear - 1 (construction before production).
   // When start year is 1, deploy year = 0 (simultaneous close).
+  const y1EBITDAFloored = y1ButlerEBITDA < 50;
+  const y1EBITDAActual = y1ButlerEBITDA;
   const butlerAcqPrice = Math.round(entryMultiple * Math.max(y1ButlerEBITDA, 50));
   const effTxAcqPrice = txExistActive ? txAcqPrice : 0;
   const effGfCapex = txGfActive ? greenfieldCapex : 0;
@@ -694,8 +698,8 @@ export function runModel(inputs) {
     // Fixed cost absorption: fixed portion of production cost spreads over more
     // tons at higher utilization, reducing effective $/ton. At goesStartUtil the
     // effective cost equals goesProductionCost exactly (no adjustment).
-    const fixedPerTon = goesProductionCost * FIXED_COST_SHARE * goesStartUtil / utilY;
-    const variablePerTon = goesProductionCost * (1 - FIXED_COST_SHARE);
+    const fixedPerTon = goesProductionCost * fixedCostShare * goesStartUtil / utilY;
+    const variablePerTon = goesProductionCost * (1 - fixedCostShare);
     const prodCost = (fixedPerTon + variablePerTon - DOE_SAVINGS_PER_TON * doeBlend) * cpiEsc;
 
     // DOD
@@ -1034,7 +1038,7 @@ export function runModel(inputs) {
     stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
     totalUses, y0Uses, doeGrantAmt, txnFeesAmt,
     txAcqDeployYear, gfCapexDeployYear, uCFs,
-    y1ButlerEBITDA, tv, exitTxnCosts, chart, warnings,
+    y1ButlerEBITDA, y1EBITDAFloored, y1EBITDAActual, tv, exitTxnCosts, chart, warnings,
     greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
     goesStartUtil, goesTargetUtil, goesRampYears,
     revCAGR, ebitdaCAGR,
