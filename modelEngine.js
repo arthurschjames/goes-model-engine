@@ -131,9 +131,9 @@ const BASE = {
   entryMultiple: 8.0, workingCapital: 150, pensionLiability: 0, txnFees: 0.02,
   ltv: 0.60, costOfDebt: 0.07,
   // Returns
-  exitMultiple: 10.5, holdPeriod: 10, waccRate: 0.082, waccMode: "manual",
+  exitMultiple: 10, holdPeriod: 10, waccRate: 0.082, waccMode: "manual",
   // Growth & Inflation
-  cpiRate: 0.025, txPriceEscalation: 0.07, terminalGrowth: 0.025,
+  cpiRate: 0.025, txPriceEscalation: 0.06, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
   // Working Capital
@@ -383,14 +383,14 @@ export const MARKERS = {
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
   ltv: { bear: 0.45, base: 0.60, bull: 0.60 },
   costOfDebt: { bear: 0.08, base: 0.07, bull: 0.065 },
-  exitMultiple: { bear: 9, base: 10.5, bull: 13 },
+  exitMultiple: { bear: 9, base: 10, bull: 13 },
   holdPeriod: { bear: 12, base: 10, bull: 7 },
   maintCapexPct: { bear: 0.09, base: 0.07, bull: 0.05 },
   daPctRevenue: { bear: 0.14, base: 0.12, bull: 0.10 },
   pensionLiability: { bear: 400, base: 0, bull: 0 },
   goesPriceInflation: { bear: 0.02, base: 0.035, bull: 0.05 },
   cpiRate: { bear: 0.035, base: 0.025, bull: 0.020 },
-  txPriceEscalation: { bear: 0.04, base: 0.07, bull: 0.10 },
+  txPriceEscalation: { bear: 0.04, base: 0.06, bull: 0.10 },
   txExistStartYear: { bear: 2, base: 1, bull: 1 },
   txGfStartYear: { bear: 3, base: 2, bull: 1 },
   txBaseRevenue: { bear: 400, base: 500, bull: 600 },
