@@ -288,11 +288,11 @@ const OVERRIDES = {
   vtc: {
     label: "VTC Acquisition",
     goesStartUtil: 0.67, goesTargetUtil: 0.95, goesRampYears: 3, doeOn: true, doeYear: 2,
-    txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: false,
+    txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: true, txGfStartYear: 3,
     txBaseRevenue: 4000, txBaseEBITDAMargin: 0.25, txGOESIntensity: 10,
-    txAcqMultiple: 6.5, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
-    mpUnits: 0, distUnits: 0, greenfieldCapex: 0,
-    workingCapital: 200, exitMultiple: 14, maintCapexPct: 0.07, daPctRevenue: 0.12,
+    txAcqMultiple: 15, txAcqNonCoreRevenue: 200, txAcqNonCoreMargin: 0.15,
+    mpUnits: 100, distUnits: 0, gfRampYears: 4, greenfieldCapex: 250,
+    workingCapital: 200, exitMultiple: 12, maintCapexPct: 0.07, daPctRevenue: 0.12,
   },
   deltaStar: {
     label: "Delta Star",
