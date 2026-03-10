@@ -807,6 +807,7 @@ export function runModel(inputs) {
     // Equity return metrics: cash-on-cash yield and DPI (distributions to paid-in)
     const cashOnCash = eq > 0 ? lfcf / eq : 0;
     const dpi = eq > 0 ? cumLFCF / eq : 0;
+    const intCoverage = intAnn > 0 ? totalEBITDA / intAnn : null;
 
     years.push({
       year: y, rp, duo, duoBlend, doeActive, doeBlend, dodActive, captiveCapped, utilY,
@@ -830,7 +831,7 @@ export function runModel(inputs) {
       totalRev, totalEBITDA, margin,
       capexDeploy,
       nwc, deltaNWC, mc, da, acqDA, gfDA, maintDA, maintExpensed, ebit, ebt, tax, taxLevered, ufcf, lfcf, intAnn,
-      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi,
+      debtBal, amort, sweep, totalPrincipal, cumUFCF, cumLFCF, cashOnCash, dpi, intCoverage,
       // Sourcing
       totalTXGOESDemand, desiredCaptive, marketPurchase, spare,
     });
@@ -864,6 +865,15 @@ export function runModel(inputs) {
   const realUIRR = uIRR != null ? (1 + uIRR) / (1 + cpiRate) - 1 : null;
   const realLIRR = lIRR != null ? (1 + lIRR) / (1 + cpiRate) - 1 : null;
 
+  // Operational IRR — levered IRR assuming exit multiple = entry multiple (zero expansion)
+  const tvNoExpansion = tE * entryMultiple;
+  const opLCFs = years.map((yr, i) =>
+    i === 0 ? lCFs[0] :
+    i === holdPeriod ? yr.lfcf + tvNoExpansion - debtAtExit :
+    yr.lfcf
+  );
+  const opLIRR = calculateIRR(opLCFs);
+
   // Equity multiple (MOIC)
   const tDist = years.reduce((s, yr) => s + yr.lfcf, 0) + tv - debtAtExit;
   const equityMultiple = eq > 0 ? tDist / eq : 0;
@@ -876,6 +886,24 @@ export function runModel(inputs) {
       const prev = cum - uCFs[i];
       pb = i - 1 + (-prev) / uCFs[i];
     }
+  }
+
+  // DPI equity payback — year where cumulative DPI crosses 1.0x
+  const equityPaybackYearObj = years.find(yr => yr.dpi >= 1.0);
+  const equityPaybackYear = equityPaybackYearObj ? equityPaybackYearObj.year : null;
+
+  // Interest coverage warning — check all years
+  for (let i = 1; i <= holdPeriod; i++) {
+    const yr = years[i];
+    if (yr.intCoverage != null && yr.intCoverage < 2.0) {
+      warnings.push(`Interest coverage drops below 2.0x in Year ${yr.year} (${yr.intCoverage.toFixed(1)}x) — lender covenant risk`);
+      break; // only warn once for the first year
+    }
+  }
+
+  // Debt amortization vs hold period warning
+  if (holdPeriod < debtAmortYears) {
+    warnings.push(`Exiting in Year ${holdPeriod} before debt fully amortizes (${debtAmortYears}yr schedule) — $${fmtM(debtAtExit)} remaining at exit.`);
   }
 
   // Stabilized year (first full ramp, typically Y4)
@@ -936,8 +964,8 @@ export function runModel(inputs) {
     tvExitMult, pvTVExit, evExit, eqValExit, impliedMultiple,
     tvGordon, pvTVGordon, evGordon, eqValGordon,
     terminalEBITDA: tE, terminalUFCF,
-    uIRR, lIRR, realUIRR, realLIRR,
-    equityMultiple, paybackPeriod: pb,
+    uIRR, lIRR, realUIRR, realLIRR, opLIRR,
+    equityMultiple, paybackPeriod: pb, equityPaybackYear,
 
     // ── Additional model outputs ──
     stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
@@ -975,7 +1003,7 @@ function zeroYear() {
     "totalRev", "totalEBITDA", "margin",
     "capexDeploy",
     "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
-    "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi",
+    "debtBal", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
   ];
   for (const k of numKeys) z[k] = 0;
