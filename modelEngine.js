@@ -298,10 +298,10 @@ const OVERRIDES = {
     label: "Delta Star",
     goesStartUtil: 0.65, goesTargetUtil: 0.88, goesRampYears: 3,
     txExistEnabled: true, txExistStartYear: 1, txGreenfieldEnabled: true, txGfStartYear: 2,
-    txBaseRevenue: 300, txBaseEBITDAMargin: 0.22, txGOESIntensity: 17,
-    txAcqMultiple: 14, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
+    txBaseRevenue: 150, txBaseEBITDAMargin: 0.20, txGOESIntensity: 17,
+    txAcqMultiple: 10, txAcqNonCoreRevenue: 25, txAcqNonCoreMargin: 0.20,
     mpUnits: 150, gfRampYears: 4, greenfieldCapex: 175,
-    exitMultiple: 13, maintCapexPct: 0.06, daPctRevenue: 0.11,
+    exitMultiple: 10, maintCapexPct: 0.06, daPctRevenue: 0.11,
   },
 };
 
