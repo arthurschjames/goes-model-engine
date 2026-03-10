@@ -73,7 +73,11 @@ export const fmt = (v, d = 0) => {
   const s = Math.abs(v).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return neg ? `(${s})` : s;
 };
-export const fmtM = (v) => `$${fmt(Math.round(v), 0)}M`;
+export const fmtM = (v) => {
+  const r = Math.round(v);
+  if (Math.abs(r) >= 1000) return `$${(r / 1000).toFixed(1)}B`;
+  return `$${fmt(r, 0)}M`;
+};
 export const fmtPct = (v) => `${fmt(v * 100, 1)}%`;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -973,6 +977,16 @@ export function runModel(inputs) {
     }
   }
 
+  // Levered payback period — years for cumulative levered FCF to recover equity
+  let levCum = -eq, levPayback = null;
+  for (let i = 1; i <= holdPeriod; i++) {
+    const prev = levCum;
+    levCum += years[i].lfcf;
+    if (levCum >= 0 && levPayback === null) {
+      levPayback = i - 1 + (-prev) / years[i].lfcf;
+    }
+  }
+
   // DPI equity payback — year where cumulative DPI crosses 1.0x
   const equityPaybackYearObj = years.find(yr => yr.dpi >= 1.0);
   const equityPaybackYear = equityPaybackYearObj ? equityPaybackYearObj.year : null;
@@ -1092,7 +1106,7 @@ export function runModel(inputs) {
     tvGordon, pvTVGordon, evGordon, eqValGordon,
     terminalEBITDA: tE, terminalUFCF,
     uIRR, lIRR, realUIRR, realLIRR, opLIRR,
-    equityMultiple, paybackPeriod: pb, equityPaybackYear,
+    equityMultiple, paybackPeriod: pb, levPayback, equityPaybackYear,
 
     // ── Additional model outputs ──
     stab, butlerAcqPrice, txAcqPrice: effTxAcqPrice,
