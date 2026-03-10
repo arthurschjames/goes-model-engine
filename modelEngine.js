@@ -1195,7 +1195,9 @@ function zeroYear() {
     "nwcPctY", "nwc", "deltaNWC", "mc", "da", "acqDA", "gfDA", "maintDA", "maintExpensed", "ebit", "ebt", "tax", "taxLevered", "ufcf", "lfcf", "intAnn",
     "debtBal", "drawnBalance", "undrawnCommitment", "amort", "sweep", "totalPrincipal", "cumUFCF", "cumLFCF", "cashOnCash", "dpi", "intCoverage",
     "totalTXGOESDemand", "desiredCaptive", "marketPurchase", "spare",
-    "nolBalance", "nolBalanceUnlevered",
+    "nolBalance", "nolBalanceUnlevered", "nolUsed", "nolUsedUnlevered",
+    "deductibleInterest", "disallowedInterest", "disallowedInterestBalance",
+    "schedAmort", "leverageRatio", "dscr",
   ];
   for (const k of numKeys) z[k] = 0;
   return z;
