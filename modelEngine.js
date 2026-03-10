@@ -178,20 +178,23 @@ const OVERRIDES = {
   base: { label: "Base Case", doeOn: true },
 
   // ── Downside: Weak Market ──────────────────────────────────────────────────
-  // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue, TX margins
-  // Unchanged: utilization ramp, production costs, deal structure, financing
+  // Stress: GOES pricing, duopoly impact, Nippon timing, non-GOES revenue,
+  //         TX margins & ASPs, exit multiple, captive % (all market-correlated)
+  // Unchanged: utilization ramp, production costs, deal structure, financing, DOE/DOD
   weakMkt: {
     label: "Weak Market",
     goesPrice: 5000, duopolyImpact: 0.22, nipponYear: 4,
-    goesPriceInflation: 0.02, dodRenewal: false,
+    goesPriceInflation: 0.02, doeOn: true, dodRenewal: true,
     nonGoesRevenue: 100, nonGoesMargin: 0.12,
     // TX existing — weaker margins, lower demand in soft market
-    txBaseRevenue: 400, txBaseEBITDAMargin: 0.10, txGOESIntensity: 15,
-    txAcqNonCoreRevenue: 35, txAcqNonCoreMargin: 0.15,
-    // TX greenfield — lower ASPs, delayed start due to uncertain demand
+    txBaseRevenue: 425, txBaseEBITDAMargin: 0.10, txGOESIntensity: 15,
+    txAcqNonCoreRevenue: 40, txAcqNonCoreMargin: 0.17,
+    // TX greenfield — moderate ASP compression, delayed start
     txGfStartYear: 3, gfRampYears: 5,
-    mpASP: 700000, distASP: 18000, txPriceEscalation: 0.04,
+    mpASP: 900000, distASP: 18000, txPriceEscalation: 0.04,
     mpUnits: 100,
+    // Market-correlated: exit buyers pay less in weak narrative, less captive consumption
+    exitMultiple: 9.5, captivePct: 0.85,
   },
 
   // ── Downside: Execution Risk ───────────────────────────────────────────────
@@ -366,7 +369,7 @@ export const MARKERS = {
   nonGoesMargin: { bear: 0.12, base: 0.15, bull: 0.18 },
   mpUnits: { bear: 150, base: 300, bull: 450 },
   goesPerMP: { bear: 16, base: 14, bull: 12 },
-  mpASP: { bear: 700000, base: 1100000, bull: 1500000 },
+  mpASP: { bear: 900000, base: 1100000, bull: 1500000 },
   mpOpCostPct: { bear: 0.62, base: 0.56, bull: 0.50 },
   distUnits: { bear: 0, base: 0, bull: 2000 },
   distASP: { bear: 18000, base: 22000, bull: 28000 },
