@@ -123,9 +123,12 @@ const BASE = {
   // TX Greenfield — capacity expansion
   txGreenfieldEnabled: true, txGfStartYear: 2,
   mpUnits: 150, goesPerMP: 14, mpASP: 1100000,
-  mpOpCostPct: 0.56, mpIntermediatePct: 0.12,
+  mpVarCostPct: 0.38, mpFixedCost: 30, // variable cost ex-GOES as % of ASP; fixed cost $M/yr at full capacity
+  mpIntermediatePct: 0.12,
   distUnits: 0, goesPerDist: 0.8, distASP: 22000,
-  distOpCostPct: 0.61, distIntermediatePct: 0.08,
+  distVarCostPct: 0.42, distFixedCost: 5, // distribution line fixed/variable split
+  distIntermediatePct: 0.08,
+  gfLearningCurve: 0.15, // Year 1 variable cost premium (15%), declines to 0 over ramp
   ramp: [0, 0.30, 0.70, 1.0], gfRampYears: 4, greenfieldCapex: 150,
   internalizeIntermediate: false, internalizeFactor: 0.50, // in-house cost as fraction of outsourced (lower = more savings)
   // TX GOES Sourcing
@@ -144,10 +147,12 @@ const BASE = {
   cpiRate: 0.025, txPriceEscalation: 0.05, txEscalationDecay: 0, txCostEscalation: 0.04, terminalGrowth: 0.025,
   // WACC Build-up
   riskFreeRate: 0.041, equityRiskPremium: 0.055, beta: 1.20, sizePremium: 0.02,
-  // Working Capital
-  nwcPctRevenue: 0.15, // NWC target % of revenue after ramp
-  nwcStartPct: 0.15,   // NWC starting % of revenue (entry-implied level)
-  nwcRampYears: 3,     // Years to linearly ramp from nwcStartPct → nwcPctRevenue
+  // Working Capital — DSO/DIO/DPO approach
+  wcDSO: 55,     // days sales outstanding (receivables)
+  wcDIO: 65,     // days inventory outstanding
+  wcDPO: 40,     // days payable outstanding
+  // Legacy fallback — kept for backward compat, ignored when DSO/DIO/DPO are set
+  nwcPctRevenue: 0.15, nwcStartPct: 0.15, nwcRampYears: 3,
   // Debt Structure
   debtAmortYears: 7, // Maturity in years — 0 = interest-only bullet
   debtAmortPct: 0.01, // Annual mandatory amortization as % of outstanding balance (PE standard: 1%)
@@ -156,6 +161,11 @@ const BASE = {
   ddtlCommitmentFee: 0.005, // 50bps commitment fee on undrawn DDTL balance
   // Cost Structure
   fixedCostShare: 0.40, // % of GOES production cost that is fixed
+  // Covenant Monitoring (expandable)
+  covenantMonitoring: false,       // toggle: show covenant compliance in Cash Flow table
+  covenantMaxLeverage: 5.0,        // max Net Debt / EBITDA
+  covenantMinCoverage: 2.0,        // min EBITDA / Interest
+  covenantMinDSCR: 1.2,            // min DSCR (EBITDA - capex - tax) / (interest + amort)
   // Tariff Risk (Section 232)
   tariffRiskEnabled: false,        // toggle: model tariff reduction scenario
   tariffReductionPct: 0.45,        // % reduction in GOES market price if tariffs removed
@@ -233,10 +243,11 @@ const OVERRIDES = {
     // TX greenfield — delayed, slow ramp, cost overruns
     txGfStartYear: 3, gfRampYears: 5,
     ramp: [0, 0.20, 0.50, 0.80, 1.0], greenfieldCapex: 200,
-    mpOpCostPct: 0.62, mpIntermediatePct: 0.14,
-    distOpCostPct: 0.67, distIntermediatePct: 0.10,
+    mpVarCostPct: 0.44, mpFixedCost: 35, mpIntermediatePct: 0.14,
+    distVarCostPct: 0.48, distFixedCost: 6, distIntermediatePct: 0.10,
+    gfLearningCurve: 0.20,
     doeOn: true, doeYear: 3,
-    nwcPctRevenue: 0.18, nwcStartPct: 0.20, nwcRampYears: 5,
+    wcDSO: 70, wcDIO: 80, wcDPO: 30,
     // Captive sourcing hedge — quality issues force some external GOES purchasing
     captivePct: 0.90, nonGoesMargin: 0.13,
     exitMultiple: 10,
@@ -287,12 +298,13 @@ const OVERRIDES = {
     maintCapexPct: 0.06, daPctRevenue: 0.10,
     // TX greenfield — accelerated build, low costs, fast ramp
     txGfStartYear: 1, gfRampYears: 3,
-    mpOpCostPct: 0.50, mpIntermediatePct: 0.10,
-    distOpCostPct: 0.52, distIntermediatePct: 0.06,
+    mpVarCostPct: 0.32, mpFixedCost: 25, mpIntermediatePct: 0.10,
+    distVarCostPct: 0.35, distFixedCost: 4, distIntermediatePct: 0.06,
+    gfLearningCurve: 0.10,
     greenfieldCapex: 120, internalizeIntermediate: true,
     exitMultiple: 11.5,
     doeOn: true, doeYear: 1,
-    nwcPctRevenue: 0.12, nwcStartPct: 0.15, nwcRampYears: 2,
+    wcDSO: 40, wcDIO: 50, wcDPO: 50,
     txCostEscalation: 0.03,
   },
 
@@ -404,10 +416,13 @@ export const MARKERS = {
   mpUnits: { bear: 150, base: 300, bull: 450 },
   goesPerMP: { bear: 16, base: 14, bull: 12 },
   mpASP: { bear: 900000, base: 1100000, bull: 1500000 },
-  mpOpCostPct: { bear: 0.62, base: 0.56, bull: 0.50 },
+  mpVarCostPct: { bear: 0.44, base: 0.38, bull: 0.32 },
+  mpFixedCost: { bear: 35, base: 30, bull: 25 },
   distUnits: { bear: 0, base: 0, bull: 2000 },
   distASP: { bear: 18000, base: 22000, bull: 28000 },
-  distOpCostPct: { bear: 0.67, base: 0.61, bull: 0.52 },
+  distVarCostPct: { bear: 0.48, base: 0.42, bull: 0.35 },
+  distFixedCost: { bear: 6, base: 5, bull: 4 },
+  gfLearningCurve: { bear: 0.20, base: 0.15, bull: 0.10 },
   captivePct: { bear: 0.50, base: 1.00, bull: 1.00 },
   entryMultiple: { bear: 9, base: 8, bull: 7 },
   greenfieldCapex: { bear: 200, base: 150, bull: 100 },
@@ -440,9 +455,9 @@ export const MARKERS = {
   riskFreeRate: { bear: 0.045, base: 0.041, bull: 0.035 },
   beta: { bear: 1.35, base: 1.20, bull: 1.05 },
   sizePremium: { bear: 0.025, base: 0.02, bull: 0.015 },
-  nwcPctRevenue: { bear: 0.18, base: 0.15, bull: 0.12 },
-  nwcStartPct: { bear: 0.20, base: 0.15, bull: 0.15 },
-  nwcRampYears: { bear: 5, base: 3, bull: 2 },
+  wcDSO: { bear: 70, base: 55, bull: 40 },
+  wcDIO: { bear: 80, base: 65, bull: 50 },
+  wcDPO: { bear: 30, base: 40, bull: 50 },
   waccRate: { bear: 0.12, base: 0.09, bull: 0.08 },
 };
 
@@ -485,9 +500,9 @@ export function runModel(inputs) {
     txAcqMultiple, txAcqNonCoreRevenue, txAcqNonCoreMargin,
     txGreenfieldEnabled, txGfStartYear,
     mpUnits, goesPerMP, mpASP,
-    mpOpCostPct, mpIntermediatePct,
+    mpIntermediatePct,
     distUnits, goesPerDist, distASP,
-    distOpCostPct, distIntermediatePct,
+    distIntermediatePct,
     ramp, gfRampYears, greenfieldCapex, internalizeIntermediate,
     captivePct,
     taxRate, interestCapEnabled, interestCapPct,
@@ -496,7 +511,7 @@ export function runModel(inputs) {
     exitMultiple, holdPeriod, exitTxnCosts, waccMode, waccRate,
     cpiRate, txPriceEscalation, txEscalationDecay, txCostEscalation, terminalGrowth,
     riskFreeRate, equityRiskPremium, beta, sizePremium,
-    nwcPctRevenue, debtAmortYears, debtAmortPct, minCashBalance, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
+    debtAmortYears, debtAmortPct, minCashBalance, cashSweepPct, ddtlCommitmentFee, maintCapexPct, fixedCostShare,
     daPctRevenue, useAdvancedDep,
     acqDepreciablePct, acqDepLife, gfDepLife,
     tariffRiskEnabled, tariffReductionPct, tariffRiskYear, tariffTransitionYears,
@@ -506,20 +521,39 @@ export function runModel(inputs) {
   const goesTargetUtil = p.goesTargetUtil ?? goesStartUtil;
   const goesRampYears = p.goesRampYears ?? BASE.goesRampYears;
 
-  // NWC ramp: start at entry-implied NWC % and ramp to target over nwcRampYears
-  const nwcStart = p.nwcStartPct ?? nwcPctRevenue; // default: no ramp (start = target)
-  const nwcRampYrs = p.nwcRampYears ?? BASE.nwcRampYears;
+  // NWC: use DSO/DIO/DPO-derived % (no ramp — CCC is structural)
+  const nwcPctRevenue = nwcPctFromCCC;
 
   const goesPrice = p.goesPrice ?? BASE.goesPrice;
   const duopolyImpact = p.duopolyImpact ?? BASE.duopolyImpact;
   const goesPostDuopolyPrice = goesPrice * (1 - duopolyImpact);
 
-  // Operating cost with internalize savings
+  // Greenfield cost structure — fixed/variable split with learning curve
+  const mpVarCostPct = p.mpVarCostPct ?? BASE.mpVarCostPct;
+  const mpFixedCost = p.mpFixedCost ?? BASE.mpFixedCost;
+  const distVarCostPct = p.distVarCostPct ?? BASE.distVarCostPct;
+  const distFixedCost = p.distFixedCost ?? BASE.distFixedCost;
+  const gfLearningCurve = p.gfLearningCurve ?? BASE.gfLearningCurve;
+  // Operating cost with internalize savings (applied to variable cost %)
   const intFactor = p.internalizeFactor ?? INTERNALIZE_FACTOR_DEFAULT;
   const mpIntermSavings = internalizeIntermediate ? mpIntermediatePct * (1 - intFactor) : 0;
   const distIntermSavings = internalizeIntermediate ? distIntermediatePct * (1 - intFactor) : 0;
-  const mpEffOpCostPct = mpOpCostPct - mpIntermSavings;
-  const distEffOpCostPct = distOpCostPct - distIntermSavings;
+  const mpEffVarCostPct = mpVarCostPct - mpIntermSavings;
+  const distEffVarCostPct = distVarCostPct - distIntermSavings;
+
+  // Working capital — DSO/DIO/DPO
+  const wcDSO = p.wcDSO ?? BASE.wcDSO;
+  const wcDIO = p.wcDIO ?? BASE.wcDIO;
+  const wcDPO = p.wcDPO ?? BASE.wcDPO;
+  // CCC (cash conversion cycle) in days → NWC as fraction of annual revenue
+  const ccc = wcDSO + wcDIO - wcDPO;
+  const nwcPctFromCCC = ccc / 365;
+
+  // Covenant monitoring
+  const covenantMonitoring = p.covenantMonitoring ?? false;
+  const covenantMaxLeverage = p.covenantMaxLeverage ?? 5.0;
+  const covenantMinCoverage = p.covenantMinCoverage ?? 2.0;
+  const covenantMinDSCR = p.covenantMinDSCR ?? 1.2;
 
   // Effective TX segment enables
   const txExistActive = txExistEnabled !== false && txBaseRevenue > 0;
@@ -807,11 +841,24 @@ export function runModel(inputs) {
     const gfGOESCostCap = (gfCaptive * prodCost) / 1e6;
     const gfGOESCostMkt = (gfMarketPurchase * mktPrice) / 1e6;
     const gfGOESCost = gfGOESCostCap + gfGOESCostMkt;
-    // Operating costs — single % per product (includes interm savings if applicable)
-    // TX costs escalate at txCostEscalation (between CPI and ASP) to avoid artificial margin expansion
-    const mpOpCostY = (mpUnitsY * mpASP * mpEffOpCostPct * txCostEsc) / 1e6;
-    const distOpCostY = (distUnitsY * distASP * distEffOpCostPct * txCostEsc) / 1e6;
-    const gfOpCost = mpOpCostY + distOpCostY;
+    // Operating costs — fixed/variable split with learning curve
+    // Learning curve: Year 1 of production has gfLearningCurve premium on variable costs,
+    // declining linearly to 0 over ramp years (mature operations = no premium)
+    const yRel = y - (txGfStartYear || 1) + 1; // years since greenfield start
+    const learningPremium = gfLearningCurve > 0 && gfRampYears > 0
+      ? gfLearningCurve * Math.max(0, 1 - (yRel - 1) / gfRampYears)
+      : 0;
+    // Variable costs: % of ASP × units, with learning premium and internalize savings
+    const mpVarCostY = (mpUnitsY * mpASP * mpEffVarCostPct * (1 + learningPremium) * txCostEsc) / 1e6;
+    const distVarCostY = (distUnitsY * distASP * distEffVarCostPct * (1 + learningPremium) * txCostEsc) / 1e6;
+    // Fixed costs: $M/yr scaled by ramp % (facility overhead — partial even at low ramp)
+    // At ramp, you still incur ~50% of fixed costs (staffed facility) + 50% scales with utilization
+    const fixedRampFrac = rp > 0 ? 0.5 + 0.5 * rp : 0;
+    const mpFixedCostY = gfStarted ? mpFixedCost * fixedRampFrac * cpiEsc : 0;
+    const distFixedCostY = gfStarted ? distFixedCost * fixedRampFrac * cpiEsc : 0;
+    const gfVarCost = mpVarCostY + distVarCostY;
+    const gfFixedCostY = mpFixedCostY + distFixedCostY;
+    const gfOpCost = gfVarCost + gfFixedCostY;
     const gfRev = mpRevY + distRevY;
     const gfEBITDA = gfRev - gfGOESCost - gfOpCost;
     const gfMargin = gfRev > 0 ? gfEBITDA / gfRev : 0;
@@ -833,9 +880,8 @@ export function runModel(inputs) {
     const totalEBITDA = goesEBITDA + txTotalEBITDA;
     const margin = totalRev > 0 ? totalEBITDA / totalRev : 0;
 
-    // Working capital — NWC % ramps from nwcStartPct → nwcPctRevenue over nwcRampYears
-    const nwcBlend = nwcRampYrs > 0 ? Math.min(1, (y - 1) / nwcRampYrs) : 1;
-    const nwcPctY = nwcStart + (nwcPctRevenue - nwcStart) * nwcBlend;
+    // Working capital — DSO/DIO/DPO derived (NWC = CCC/365 × revenue)
+    const nwcPctY = nwcPctRevenue; // structural, from cash conversion cycle
     const nwc = totalRev * nwcPctY;
     const deltaNWC = nwc - prevNWC;
     prevNWC = nwc;
@@ -951,7 +997,7 @@ export function runModel(inputs) {
       // TX greenfield
       mpUnitsY, distUnitsY, mpRevY, distRevY, gfRev,
       gfGOESCost, gfGOESCostCap, gfGOESCostMkt,
-      gfOpCost,
+      gfVarCost, gfFixedCostY, gfOpCost, learningPremium,
       gfEBITDA, gfMargin, gfCaptive, gfMarketPurchase, captiveAdvGF,
       // TX non-core
       txNCRevY, txNCEBITDA,
@@ -1034,12 +1080,37 @@ export function runModel(inputs) {
   const equityPaybackYearObj = years.find(yr => yr.dpi >= 1.0);
   const equityPaybackYear = equityPaybackYearObj ? equityPaybackYearObj.year : null;
 
-  // Interest coverage warning — check all years
+  // Covenant monitoring — check all years for breaches
+  const covenantBreaches = [];
   for (let i = 1; i <= holdPeriod; i++) {
     const yr = years[i];
-    if (yr.intCoverage != null && yr.intCoverage < 2.0) {
-      warnings.push(`Interest coverage drops below 2.0x in Year ${yr.year} (${yr.intCoverage.toFixed(1)}x) — lender covenant risk`);
-      break; // only warn once for the first year
+    const breaches = [];
+    if (yr.leverageRatio != null && yr.leverageRatio > covenantMaxLeverage) {
+      breaches.push(`leverage ${yr.leverageRatio.toFixed(1)}x > ${covenantMaxLeverage.toFixed(1)}x`);
+    }
+    if (yr.intCoverage != null && yr.intCoverage < covenantMinCoverage) {
+      breaches.push(`coverage ${yr.intCoverage.toFixed(1)}x < ${covenantMinCoverage.toFixed(1)}x`);
+    }
+    if (yr.dscr != null && yr.dscr < covenantMinDSCR) {
+      breaches.push(`DSCR ${yr.dscr.toFixed(1)}x < ${covenantMinDSCR.toFixed(1)}x`);
+    }
+    yr.covenantBreach = breaches.length > 0;
+    yr.covenantBreaches = breaches;
+    if (breaches.length > 0) covenantBreaches.push({ year: i, breaches });
+  }
+  // Warnings for covenant breaches
+  if (covenantBreaches.length > 0) {
+    const first = covenantBreaches[0];
+    warnings.push(`Covenant breach in Y${first.year}: ${first.breaches.join(", ")}`);
+  }
+  // Legacy interest coverage warning (always active even if covenant monitoring off)
+  if (!covenantMonitoring) {
+    for (let i = 1; i <= holdPeriod; i++) {
+      const yr = years[i];
+      if (yr.intCoverage != null && yr.intCoverage < 2.0) {
+        warnings.push(`Interest coverage drops below 2.0x in Year ${yr.year} (${yr.intCoverage.toFixed(1)}x) — lender covenant risk`);
+        break;
+      }
     }
   }
 
@@ -1156,7 +1227,8 @@ export function runModel(inputs) {
     totalUses, y0Uses, doeGrantAmt, txnFeesAmt,
     txAcqDeployYear, gfCapexDeployYear, uCFs,
     y1ButlerEBITDA, y1EBITDAFloored, y1EBITDAActual, tv, exitTxnCosts, chart, warnings,
-    greenfieldCapex: effGfCapex, workingCapital, pensionLiability,
+    greenfieldCapex: effGfCapex, workingCapital, pensionLiability, covenantBreaches, covenantMonitoring,
+    wcDSO, wcDIO, wcDPO, ccc, nwcPctFromCCC,
     goesStartUtil, goesTargetUtil, goesRampYears,
     revCAGR, ebitdaCAGR,
     goesPrice, duopolyImpact, goesPostDuopolyPrice,
@@ -1186,7 +1258,7 @@ function zeroYear() {
     "txAcqNCRevY", "txAcqNCEBITDA",
     "mpUnitsY", "distUnitsY", "mpRevY", "distRevY", "gfRev",
     "gfGOESCost", "gfGOESCostCap", "gfGOESCostMkt",
-    "gfOpCost",
+    "gfVarCost", "gfFixedCostY", "gfOpCost", "learningPremium",
     "gfEBITDA", "gfMargin", "gfCaptive", "gfMarketPurchase", "captiveAdvGF",
     "txNCRevY", "txNCEBITDA",
     "txTotalRev", "txTotalEBITDA", "txMargin", "totalCaptiveAdv",
