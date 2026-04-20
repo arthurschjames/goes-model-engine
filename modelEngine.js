@@ -521,7 +521,12 @@ export function runModel(inputs) {
   const goesTargetUtil = p.goesTargetUtil ?? goesStartUtil;
   const goesRampYears = p.goesRampYears ?? BASE.goesRampYears;
 
-  // NWC: use DSO/DIO/DPO-derived % (no ramp — CCC is structural)
+  // Working capital — DSO/DIO/DPO → CCC → NWC % of revenue (structural, no ramp)
+  const wcDSO = p.wcDSO ?? BASE.wcDSO;
+  const wcDIO = p.wcDIO ?? BASE.wcDIO;
+  const wcDPO = p.wcDPO ?? BASE.wcDPO;
+  const ccc = wcDSO + wcDIO - wcDPO;
+  const nwcPctFromCCC = ccc / 365;
   const nwcPctRevenue = nwcPctFromCCC;
 
   const goesPrice = p.goesPrice ?? BASE.goesPrice;
@@ -540,14 +545,6 @@ export function runModel(inputs) {
   const distIntermSavings = internalizeIntermediate ? distIntermediatePct * (1 - intFactor) : 0;
   const mpEffVarCostPct = mpVarCostPct - mpIntermSavings;
   const distEffVarCostPct = distVarCostPct - distIntermSavings;
-
-  // Working capital — DSO/DIO/DPO
-  const wcDSO = p.wcDSO ?? BASE.wcDSO;
-  const wcDIO = p.wcDIO ?? BASE.wcDIO;
-  const wcDPO = p.wcDPO ?? BASE.wcDPO;
-  // CCC (cash conversion cycle) in days → NWC as fraction of annual revenue
-  const ccc = wcDSO + wcDIO - wcDPO;
-  const nwcPctFromCCC = ccc / 365;
 
   // Covenant monitoring
   const covenantMonitoring = p.covenantMonitoring ?? false;
