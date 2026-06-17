@@ -8,12 +8,29 @@
 // (e.g., deferred capex creating mid-hold outflows) where a single Newton
 // guess may find the wrong root or diverge.
 
+/**
+ * Net present value of a cashflow series at a given discount rate.
+ * CF[0] is the period-0 (immediate) flow; CF[t] is discounted by (1+rate)^t.
+ * @param {number[]} cashflows - Array of periodic cashflows
+ * @param {number}   rate      - Periodic discount rate (decimal, e.g. 0.15 = 15%)
+ * @returns {number} NPV
+ */
 function _npv(cashflows, rate) {
   let npv = 0;
   for (let t = 0; t < cashflows.length; t++) npv += cashflows[t] / Math.pow(1 + rate, t);
   return npv;
 }
 
+/**
+ * Newton-Raphson IRR solver.
+ * Iterates: rate_new = rate - NPV(rate) / NPV'(rate)
+ * where NPV'(rate) = -Σ [ t * CF[t] / (1+rate)^(t+1) ] (first derivative w.r.t. rate).
+ * Terminates when |NPV| < $0.01 (i.e. negligibly close to zero).
+ * Guards against: zero derivative (flat NPV curve), rate divergence outside [-95%, 500%].
+ * @param {number[]} cashflows - Cashflow series
+ * @param {number}   guess     - Initial rate guess
+ * @returns {number|null} IRR as decimal, or null if diverged/failed
+ */
 function _newtonRaphsonIRR(cashflows, guess) {
   let rate = guess;
   for (let i = 0; i < 2000; i++) {
@@ -21,17 +38,29 @@ function _newtonRaphsonIRR(cashflows, guess) {
     for (let t = 0; t < cashflows.length; t++) {
       const d = Math.pow(1 + rate, t);
       npv += cashflows[t] / d;
-      dnpv -= t * cashflows[t] / (d * (1 + rate));
+      dnpv -= t * cashflows[t] / (d * (1 + rate)); // derivative: -t*CF/(1+r)^(t+1)
     }
-    if (Math.abs(npv) < 0.01) return rate;
-    if (Math.abs(dnpv) < 1e-12) return null;
+    if (Math.abs(npv) < 0.01) return rate; // converged — NPV < $0.01M
+    if (Math.abs(dnpv) < 1e-12) return null; // flat derivative — can't continue
     const next = rate - npv / dnpv;
-    if (next < -0.95 || next > 5 || isNaN(next)) return null;
+    if (next < -0.95 || next > 5 || isNaN(next)) return null; // diverged
     rate = next;
   }
-  return null;
+  return null; // max iterations exceeded without convergence
 }
 
+/**
+ * Bisection IRR solver — guaranteed to find a root when one exists in [lo, hi].
+ * Requires NPV(lo) and NPV(hi) to have opposite signs (Intermediate Value Theorem).
+ * Halves the search interval each iteration; converges in O(log2((hi-lo)/tol)) steps.
+ * Used as fallback when Newton-Raphson fails (e.g. multiple sign changes in cashflows).
+ * @param {number[]} cashflows - Cashflow series
+ * @param {number}   lo        - Lower bound of search interval
+ * @param {number}   hi        - Upper bound of search interval
+ * @param {number}   tol       - Convergence tolerance (default 0.01% = 1bp)
+ * @param {number}   maxIter   - Maximum iterations (default 100)
+ * @returns {number|null} IRR as decimal, or null if no root in [lo, hi]
+ */
 function _bisectionIRR(cashflows, lo, hi, tol = 0.0001, maxIter = 100) {
   let fLo = _npv(cashflows, lo);
   let fHi = _npv(cashflows, hi);
@@ -40,18 +69,30 @@ function _bisectionIRR(cashflows, lo, hi, tol = 0.0001, maxIter = 100) {
     const mid = (lo + hi) / 2;
     const fMid = _npv(cashflows, mid);
     if (Math.abs(fMid) < tol || (hi - lo) / 2 < tol) return mid;
-    if (fLo * fMid < 0) { hi = mid; fHi = fMid; }
-    else { lo = mid; fLo = fMid; }
+    if (fLo * fMid < 0) { hi = mid; fHi = fMid; } // root in [lo, mid]
+    else { lo = mid; fLo = fMid; }                  // root in [mid, hi]
   }
-  return (lo + hi) / 2;
+  return (lo + hi) / 2; // best estimate after maxIter
 }
 
+/**
+ * Multi-strategy IRR solver.
+ * Strategy:
+ *  1. Newton-Raphson from 10 spread guesses (spans [-50%, 150%]) — fast, handles most cases.
+ *  2. Deduplicates roots (< 0.1% apart are considered the same root).
+ *  3. If multiple distinct roots found (non-conventional cashflow patterns), pick the one
+ *     closest to 15% — typical PE return anchor.
+ *  4. If all Newton attempts fail, bisect on [-90%, 500%] — guaranteed convergence if a root exists.
+ * @param {number[]} cashflows - Array starting with Y0 outflow (negative), then annual inflows + terminal
+ * @returns {number|null} IRR as decimal, or null if unsolvable
+ */
 export function calculateIRR(cashflows) {
   // Try multiple initial guesses with Newton-Raphson
   const guesses = [-0.5, -0.2, 0.0, 0.05, 0.10, 0.15, 0.25, 0.40, 0.75, 1.5];
   const roots = [];
   for (const g of guesses) {
     const r = _newtonRaphsonIRR(cashflows, g);
+    // Only add distinct roots (< 0.1% apart = same root)
     if (r != null && !roots.some(existing => Math.abs(existing - r) < 0.001)) {
       roots.push(r);
     }
@@ -67,33 +108,46 @@ export function calculateIRR(cashflows) {
 }
 
 // ─── Formatting Helpers ─────────────────────────────────────────────────────
+/**
+ * Format a number with thousand separators and optional decimals.
+ * Negative values are displayed in accounting style: (1,234) rather than -1,234.
+ * Null/NaN returns em dash "—".
+ */
 export const fmt = (v, d = 0) => {
   if (v == null || isNaN(v)) return "—";
   const neg = v < 0;
   const s = Math.abs(v).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return neg ? `(${s})` : s;
 };
+
+/**
+ * Format a dollar value in $M, auto-scaling to $B for values ≥ $1B.
+ * Rounding before scaling avoids display artifacts (e.g. $0.9B → $900M).
+ */
 export const fmtM = (v) => {
   const r = Math.round(v);
   if (Math.abs(r) >= 1000) return `$${(r / 1000).toFixed(1)}B`;
   return `$${fmt(r, 0)}M`;
 };
+
+/** Format a decimal rate as a percentage with 1 decimal place (e.g. 0.175 → "17.5%"). */
 export const fmtPct = (v) => `${fmt(v * 100, 1)}%`;
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-export const NAMEPLATE = 180000;
-export const DOD_TONS = 10600;
-export const DOD_PRICE = 7550;
-export const DOE_CAPACITY = 25000;
-export const DOE_TARGET_SAVINGS = 80; // $M/yr at full NAMEPLATE — $80M / 180Kt ≈ $444/ton
-export const DOE_SAVINGS_PER_TON = DOE_TARGET_SAVINGS * 1e6 / NAMEPLATE; // ~$444.44/ton
-export const DOE_RAMP_YEARS = 2; // linear ramp from doeYear over 2 years
-// OVERHEAD_BASE removed — overhead is now overheadPct (% of revenue)
-export const FIXED_COST_SHARE_DEFAULT = 0.40; // default ~40% of production cost is fixed (labor, maintenance, facility)
-export const TAX_RATE = 0.25; // legacy default — overridden by inputs.taxRate when present
-export const DOE_GRANT_AMOUNT = 75; // $M
-export const INTERNALIZE_FACTOR_DEFAULT = 0.50; // configurable via internalizeFactor input
-export const DUOPOLY_TRANSITION_YEARS = 4; // Nippon ramps over 4 years, gradually compressing prices
+// ─── Physical & Contract Constants ──────────────────────────────────────────
+// These are observed or contractual facts — not model assumptions. Do not make
+// these user-editable; adjustments flow through other inputs (goesPrice, etc.).
+export const NAMEPLATE = 180000;       // tons/yr — GOES mill nameplate (180 Kt)
+export const DOD_TONS = 10600;         // tons/yr — DOD off-take contract volume
+export const DOD_PRICE = 7550;         // $/ton — DOD contract price (above market; reflects mission criticality)
+export const DOE_CAPACITY = 25000;     // tons/yr — extra capacity added when DOE project goes live
+export const DOE_TARGET_SAVINGS = 80;  // $M/yr savings at full NAMEPLATE throughput
+export const DOE_SAVINGS_PER_TON = DOE_TARGET_SAVINGS * 1e6 / NAMEPLATE; // ≈$444/ton production cost reduction
+export const DOE_RAMP_YEARS = 2;       // years for DOE savings to ramp from 0 to full (linear)
+export const FIXED_COST_SHARE_DEFAULT = 0.40; // 40% of production cost is fixed (labor, maintenance, facility overhead)
+export const TAX_RATE = 0.25;          // legacy default combined federal+state; overridden by inputs.taxRate
+export const DOE_GRANT_AMOUNT = 75;    // $M — one-time DOE grant reducing upfront equity needs
+export const INTERNALIZE_FACTOR_DEFAULT = 0.50; // in-house midstream cost as fraction of outsourced rate
+export const DUOPOLY_TRANSITION_YEARS = 4; // years for Nippon Steel to ramp to full market presence
 
 // ─── Info Tooltips (re-exported from infoTooltips.js) ─────────────────────
 // Display-only content — kept separate from model logic.
@@ -521,29 +575,41 @@ export function runModel(inputs) {
   const goesTargetUtil = p.goesTargetUtil ?? goesStartUtil;
   const goesRampYears = p.goesRampYears ?? BASE.goesRampYears;
 
-  // Working capital — DSO/DIO/DPO → CCC → NWC % of revenue (structural, no ramp)
+  // ── Working capital: CCC → structural NWC % of revenue ──
+  // Cash Conversion Cycle = DSO + DIO - DPO (all in days).
+  // NWC as % of revenue = CCC / 365. This is the structural (steady-state) rate;
+  // delta NWC each year reflects incremental revenue growth, not a ramp to a target.
+  // Example: DSO=55, DIO=65, DPO=40 → CCC=80d → NWC=21.9% of revenue.
   const wcDSO = p.wcDSO ?? BASE.wcDSO;
   const wcDIO = p.wcDIO ?? BASE.wcDIO;
   const wcDPO = p.wcDPO ?? BASE.wcDPO;
-  const ccc = wcDSO + wcDIO - wcDPO;
-  const nwcPctFromCCC = ccc / 365;
-  const nwcPctRevenue = nwcPctFromCCC;
+  const ccc = wcDSO + wcDIO - wcDPO;   // total cash cycle in days
+  const nwcPctFromCCC = ccc / 365;      // fraction of annual revenue tied up in working capital
 
   const goesPrice = p.goesPrice ?? BASE.goesPrice;
   const duopolyImpact = p.duopolyImpact ?? BASE.duopolyImpact;
+  // Post-duopoly equilibrium price: current price compressed by duopolyImpact fraction.
+  // For example, $5,700/t with 17% impact → $4,731/t. The year-by-year loop blends
+  // from goesPrice to goesPostDuopolyPrice as duoBlend transitions 0→1.
   const goesPostDuopolyPrice = goesPrice * (1 - duopolyImpact);
 
-  // Greenfield cost structure — fixed/variable split with learning curve
+  // ── Greenfield cost structure ──
+  // Variable cost: % of ASP (ex-GOES — transformer assembly, wiring, testing).
+  // Fixed cost: $M/yr at full capacity (facility O&M, salaried labor, insurance).
+  // Learning curve: Year 1 has a gfLearningCurve premium on variable costs (captures
+  // ramp-up inefficiency, scrap, overtime, etc.) that declines linearly to 0 by gfRampYears.
   const mpVarCostPct = p.mpVarCostPct ?? BASE.mpVarCostPct;
   const mpFixedCost = p.mpFixedCost ?? BASE.mpFixedCost;
   const distVarCostPct = p.distVarCostPct ?? BASE.distVarCostPct;
   const distFixedCost = p.distFixedCost ?? BASE.distFixedCost;
   const gfLearningCurve = p.gfLearningCurve ?? BASE.gfLearningCurve;
-  // Operating cost with internalize savings (applied to variable cost %)
+  // Internalization savings: intermediate processing (e.g. core lamination, insulation)
+  // currently outsourced at market rate. If internalized, cost is intFactor × market rate.
+  // Net savings = (1 - intFactor) × intermediate %. Removed from variable cost %.
   const intFactor = p.internalizeFactor ?? INTERNALIZE_FACTOR_DEFAULT;
   const mpIntermSavings = internalizeIntermediate ? mpIntermediatePct * (1 - intFactor) : 0;
   const distIntermSavings = internalizeIntermediate ? distIntermediatePct * (1 - intFactor) : 0;
-  const mpEffVarCostPct = mpVarCostPct - mpIntermSavings;
+  const mpEffVarCostPct = mpVarCostPct - mpIntermSavings;   // net variable cost after any internalization
   const distEffVarCostPct = distVarCostPct - distIntermSavings;
 
   // Covenant monitoring
@@ -578,14 +644,24 @@ export function runModel(inputs) {
   };
 
   // ── WACC ──
+  // Two modes:
+  //   "manual" — directly use waccRate (faster, typical for LBO screens).
+  //   "buildup" — compute via CAPM build-up:
+  //     Ke = Rf + β × ERP + size premium (modified CAPM with size premium for small/mid-cap)
+  //     Kd (after-tax) = costOfDebt × (1 - taxRate)
+  //     WACC = (1 - LTV) × Ke + LTV × Kd_at  (weights at deal LTV structure)
+  // Note: WACC at entry leverage may understate cost of equity at maturity (as debt repays,
+  // equity proportion grows and the effective discount rate should increase). We hold WACC
+  // constant for simplicity — standard PE screening practice.
   let wacc, ke, kdAfterTax;
   if (waccMode === "manual") {
     wacc = waccRate;
     ke = null;
     kdAfterTax = null;
   } else {
+    // CAPM + size premium (Duff & Phelps / Kroll build-up method)
     ke = riskFreeRate + beta * equityRiskPremium + sizePremium;
-    kdAfterTax = costOfDebt * (1 - taxRate);
+    kdAfterTax = costOfDebt * (1 - taxRate); // interest tax shield reduces effective cost of debt
     wacc = (1 - ltv) * ke + ltv * kdAfterTax;
   }
 
@@ -611,35 +687,41 @@ export function runModel(inputs) {
   const y1ButlerEBITDA = y1GoesGP + y1NonGoesGP - (y1SegRev * overheadPct);
 
   // ── Sources & Uses — timing-aware capital deployment ──
-  // Butler + WC + pension + fees always deploy at Y0.
-  // TX acquisition deploys at txExistStartYear - 1 (bolt-on closes one year before EBITDA).
-  // Greenfield capex deploys at txGfStartYear - 1 (construction before production).
-  // When start year is 1, deploy year = 0 (simultaneous close).
-  const y1EBITDAFloored = y1ButlerEBITDA < 50;
+  // Butler + WC + pension + fees always deploy at Y0 (simultaneous close).
+  // TX acquisition deploys at txExistStartYear - 1 (bolt-on closes one year before first EBITDA year).
+  // Greenfield capex deploys at txGfStartYear - 1 (construction starts before production begins).
+  // When start year is 1, deploy year = 0 (simultaneous close with Butler acquisition).
+  //
+  // The DDTL (Delayed-Draw Term Loan) structure allows the full facility to be committed at
+  // close while drawing only what's needed at each stage — deferred capex draws down the
+  // undrawn commitment with commitment fees on the undrawn balance.
+  const y1EBITDAFloored = y1ButlerEBITDA < 50; // flag: Y1 EBITDA below $50M floor (edge case)
   const y1EBITDAActual = y1ButlerEBITDA;
+  // Acquisition price = entry multiple × Y1 EBITDA (floored to $50M to avoid trivial/negative values)
   const butlerAcqPrice = Math.round(entryMultiple * Math.max(y1ButlerEBITDA, 50));
   const effTxAcqPrice = txExistActive ? txAcqPrice : 0;
   const effGfCapex = txGfActive ? greenfieldCapex : 0;
+  // Transaction fees applied to acquisition prices only (not WC, capex, or pension)
   const txnFeesAmt = (butlerAcqPrice + effTxAcqPrice) * txnFees;
-  const doeGrantAmt = doeOn ? DOE_GRANT_AMOUNT : 0;
+  const doeGrantAmt = doeOn ? DOE_GRANT_AMOUNT : 0; // $75M grant reduces total investment
 
-  // Deployment years (floored to 0)
+  // Deployment years (floored to 0 — can't deploy before close)
   const txAcqDeployYear = txExistActive ? Math.max(0, txExistStartYear - 1) : 0;
   const gfCapexDeployYear = txGfActive ? Math.max(0, txGfStartYear - 1) : 0;
 
-  // Y0 uses: items deployed at close
+  // Y0 uses: all items that deploy at the moment of close
   const y0Uses = butlerAcqPrice + workingCapital + pensionLiability + txnFeesAmt
     + (txAcqDeployYear === 0 ? effTxAcqPrice : 0)
     + (gfCapexDeployYear === 0 ? effGfCapex : 0);
 
-  // Total lifetime uses (for display and debt sizing)
+  // Total lifetime uses (used for display only — IRR cashflows use timing-aware flows)
   const totalUses = butlerAcqPrice + effTxAcqPrice + effGfCapex + workingCapital + pensionLiability + txnFeesAmt;
-  const ti = totalUses - doeGrantAmt;
-  // Debt sized on total lifetime investment (delayed-draw term loan for deferred needs)
+  const ti = totalUses - doeGrantAmt; // net total investment after DOE grant
+  // Debt sized as LTV × total investment (committed facility covers all deployment years)
   const debtInitial = ti * ltv;
-  const eq = ti - debtInitial;
-  // debtAmortPct-based amortization computed per year against BOY balance (see year loop)
-  // debtAmortYears is now maturity date for bullet payment
+  const eq = ti - debtInitial; // sponsor equity
+  // Annual mandatory amortization = debtAmortPct × BOY outstanding (1% is typical PE "cash sweep lite")
+  // debtAmortYears = debt maturity (bullet payment); model tracks against this with warnings
 
   // ── Input Validation ──
   const warnings = [];
@@ -682,23 +764,32 @@ export function runModel(inputs) {
     }
   }
 
-  // ── DDTL: track drawn vs. undrawn debt ──
-  // Total committed facility = debtInitial. Drawn at Y0 = debt share of Y0 uses.
-  // Remaining commitment draws down as deferred capex deploys.
+  // ── DDTL: track drawn vs. undrawn commitment ──
+  // Structure: bank commits the full debtInitial facility at close, but only funds draws
+  // as capital is actually deployed. Commitment fee (ddtlCommitmentFee) accrues on the
+  // undrawn portion each year.
+  // - totalCommitted = full facility size (fixed at close)
+  // - cumulativeDrawn = cumulative draws (only increases — amortization doesn't un-draw)
+  // - debtBal = outstanding principal (decreases as amortization and sweeps pay it down)
+  // - undrawnCommitment = totalCommitted - cumulativeDrawn (decreases as draws happen)
   const totalCommitted = debtInitial;
-  const y0Debt = (y0Uses - doeGrantAmt) * ltv; // debt portion of Y0 deployment
-  // Cumulative amount ever drawn — only increases (draws), never decreases (amort)
+  const y0Debt = (y0Uses - doeGrantAmt) * ltv; // debt portion of Y0 deployment (DOE grant offsets need)
+  // cumulativeDrawn tracks total ever drawn; capped at totalCommitted to avoid over-draw
   let cumulativeDrawn = Math.min(y0Debt, totalCommitted);
 
   // ── Year-by-year projections ──
-  const years = [];
-  let cumUFCF = 0;
-  let cumLFCF = 0;
-  let prevNWC = workingCapital; // Initialize to closing NWC so Y1 deltaNWC only captures incremental change
-  let debtBal = Math.min(y0Debt, totalCommitted); // Outstanding drawn debt (decreases with amort + sweep)
-  let nolBalance = 0; // Net operating loss carryforward (levered, based on EBT)
-  let nolBalanceUnlevered = 0; // Net operating loss carryforward (unlevered, based on EBIT)
-  let disallowedInterestBalance = 0; // Section 163(j) disallowed interest carryforward
+  const years = []; // index 0 = Y0 (entry), 1..holdPeriod = operating years
+  let cumUFCF = 0;  // running total of unlevered FCF (used for payback and display)
+  let cumLFCF = 0;  // running total of levered FCF (used for payback and DPI)
+  // prevNWC initialized to workingCapital (closing balance) so Y1 deltaNWC only reflects the
+  // incremental working capital needed for post-acquisition revenue growth, not a step from zero.
+  let prevNWC = workingCapital;
+  let debtBal = Math.min(y0Debt, totalCommitted); // outstanding drawn principal
+  // TCJA §172 (Tax Cuts and Jobs Act, 2017): post-2017 NOL carryforwards can offset up to 80%
+  // of taxable income per year (no carryback). Two parallel balances:
+  let nolBalance = 0;           // levered NOL: based on EBT (after interest deduction)
+  let nolBalanceUnlevered = 0;  // unlevered NOL: based on EBIT (for UFCF/DCF tax calc)
+  let disallowedInterestBalance = 0; // §163(j) carryforward: disallowed interest in prior years
 
   for (let y = 0; y <= holdPeriod; y++) {
     if (y === 0) {
@@ -733,133 +824,174 @@ export function runModel(inputs) {
       continue;
     }
 
-    // Ramp — uses linear ramp over gfRampYears (with fallback to explicit ramp array)
+    // ── Greenfield ramp factor ──
+    // computeRamp returns 0 before greenfield start, linear 0→1 over gfRampYears after.
     const rp = computeRamp(y);
 
-    // Escalation factors: Y1=base, Y2=base*(1+r), etc.
-    const cpiEsc = Math.pow(1 + cpiRate, y - 1);
-    // TX price escalation with optional decay (rate declines each year, floored at CPI)
+    // ── Escalation factors ──
+    // All are cumulative (compound) from Y1 base. Y1 = base (no escalation applied yet).
+    const cpiEsc = Math.pow(1 + cpiRate, y - 1); // CPI compounding from Y1
+
+    // TX price escalation with optional annual decay: rate starts at txPriceEscalation,
+    // declines by txEscalationDecay each year (models fading contract escalation), floored at CPI.
+    // Computed iteratively (not Math.pow) because the rate itself changes each year.
     let txPriceEsc = 1;
     for (let yr = 1; yr < y; yr++) {
       const rate = Math.max(cpiRate, txPriceEscalation - txEscalationDecay * (yr - 1));
       txPriceEsc *= (1 + rate);
     }
-    const txCostEsc = Math.pow(1 + txCostEscalation, y - 1);
-    const nonGoesEsc = cpiEsc; // Non-GOES revenue tracks CPI automatically
+    const txCostEsc = Math.pow(1 + txCostEscalation, y - 1); // transformer cost escalation (supply chain CPI)
+    const nonGoesEsc = cpiEsc; // non-GOES steel products track general CPI
 
-    // DOE — linear ramp over DOE_RAMP_YEARS starting at doeYear
+    // ── DOE benefit ramp ──
+    // Ramps linearly from 0 at doeYear to 1.0 over DOE_RAMP_YEARS.
+    // doeBlend=0 → no benefit; doeBlend=1 → full $444/ton savings and +25Kt capacity.
     const doeBlend = doeOn ? Math.min(1, Math.max(0, (y - doeYear + 1) / DOE_RAMP_YEARS)) : 0;
     const doeActive = doeBlend > 0;
 
-    // Duopoly — gradual 4-year transition as Nippon ramps production
-    // Y<nipponYear: pre-duopoly price. Y=nipponYear: 25% post. Fully post at nipponYear+3.
+    // ── Duopoly price transition ──
+    // Nippon Steel's market entry begins at nipponYear, with GOES prices transitioning
+    // from monopoly level (goesPrice) to duopoly equilibrium (goesPostDuopolyPrice)
+    // over DUOPOLY_TRANSITION_YEARS (4 years). Before nipponYear: duoBlend=0 (full price).
+    // At nipponYear+DUOPOLY_TRANSITION_YEARS-1: duoBlend=1 (fully compressed price).
     const duoBlend = Math.min(1, Math.max(0, (y - nipponYear + 1) / DUOPOLY_TRANSITION_YEARS));
-    const duo = duoBlend > 0;
-    const priceEsc = Math.pow(1 + goesPriceInflation, y - 1);
+    const duo = duoBlend > 0; // flag: duopoly transition has begun
+    const priceEsc = Math.pow(1 + goesPriceInflation, y - 1); // GOES nominal price inflation (from Y1)
 
-    // Tariff risk — Section 232 reduction ramps from 0 to tariffReductionPct over tariffTransitionYears
-    // Stacks independently with duopoly impact. DOD contract price is unaffected (government contract).
+    // ── Section 232 tariff risk ──
+    // If tariffs are reduced/removed, GOES market price would compress (import competition).
+    // DOD contract is insulated (government contract), so tariffAdj applies to third-party price only.
+    // Phase-in: tariffAdj ramps from 0 at tariffRiskYear to tariffReductionPct over tariffTransitionYears.
     const tariffAdj = tariffRiskEnabled && y >= tariffRiskYear
       ? Math.min(tariffReductionPct, tariffReductionPct * Math.min(1, (y - tariffRiskYear + 1) / Math.max(1, tariffTransitionYears)))
       : 0;
 
+    // Market price: blend pre/post duopoly, then apply tariff adjustment, then apply price inflation.
+    // Order matters: tariff and duopoly are price-level effects (fraction); inflation compounds on top.
     const mktPrice = (goesPrice * (1 - duoBlend) + goesPostDuopolyPrice * duoBlend) * (1 - tariffAdj) * priceEsc;
 
-    // GOES production — utilization ramps from start → target over rampYears.
-    // With DOE active, capacity ramps linearly (max ~114% at full DOE).
+    // ── GOES production ──
+    // Utilization ramps linearly from goesStartUtil to goesTargetUtil over goesRampYears.
+    // DOE adds 25Kt capacity (ramps separately via doeBlend). Production = min(util×NAMEPLATE, cap).
     const utilBlend = goesRampYears > 0 ? Math.min(1, (y - 1) / goesRampYears) : 1;
     const utilY = goesStartUtil + (goesTargetUtil - goesStartUtil) * utilBlend;
-    const cap = NAMEPLATE + (DOE_CAPACITY * doeBlend);
-    const production = Math.min(NAMEPLATE * utilY, cap);
-    // Fixed cost absorption: fixed portion of production cost spreads over more
-    // tons at higher utilization, reducing effective $/ton. At goesStartUtil the
-    // effective cost equals goesProductionCost exactly (no adjustment).
+    const cap = NAMEPLATE + (DOE_CAPACITY * doeBlend); // effective annual capacity (tons)
+    const production = Math.min(NAMEPLATE * utilY, cap); // can't exceed physical capacity
+
+    // ── Fixed cost absorption ──
+    // Fixed costs (labor, maintenance, facility) are spread over actual production tons.
+    // At goesStartUtil: fixedPerTon = goesProductionCost × fixedCostShare (no adjustment).
+    // At higher utilization: same total fixed cost / more tons → lower $/ton → lower COGS.
+    // This correctly models operating leverage in the steel business.
     const fixedPerTon = goesProductionCost * fixedCostShare * goesStartUtil / utilY;
-    const variablePerTon = goesProductionCost * (1 - fixedCostShare);
+    const variablePerTon = goesProductionCost * (1 - fixedCostShare); // constant per ton
+    // DOE savings reduce production cost $/ton by DOE_SAVINGS_PER_TON × doeBlend (phased in).
+    // CPI escalation applied to full prodCost (both fixed and variable escalate with input inflation).
     const prodCost = (fixedPerTon + variablePerTon - DOE_SAVINGS_PER_TON * doeBlend) * cpiEsc;
 
-    // DOD
+    // ── DOD contract ──
+    // DOD 5-year contract is active Y1-Y5 by default. dodRenewal extends it through holdPeriod.
     const dodActive = y <= 5 || dodRenewal;
-    const dodTons = dodActive ? DOD_TONS : 0;
+    const dodTons = dodActive ? DOD_TONS : 0; // 10,600 t/yr at premium price
 
-    // Transformer GOES demand (respects enable toggles + start years)
+    // ── Transformer GOES demand ──
+    // GOES consumed by the TX segment each year. Two sources:
+    //   Greenfield: mpUnits × rp × goesPerMP + distUnits × rp × goesPerDist (scales with ramp)
+    //   Existing:   txBaseGOESDemand (pre-computed from intensity or units mode; constant once started)
     const gfStarted = txGfActive && y >= txGfStartYear;
     const existStarted = txExistActive && y >= txExistStartYear;
-    const mpUnitsY = gfStarted ? mpUnits * rp : 0;
-    const distUnitsY = gfStarted ? distUnits * rp : 0;
+    const mpUnitsY = gfStarted ? mpUnits * rp : 0;   // medium power units produced this year
+    const distUnitsY = gfStarted ? distUnits * rp : 0; // distribution units produced this year
     const gfGOESDemand = mpUnitsY * goesPerMP + distUnitsY * goesPerDist;
     const existGOESDemand = existStarted ? txBaseGOESDemand : 0;
     const totalTXGOESDemand = gfGOESDemand + existGOESDemand;
 
-    // Captive allocation with constraint
+    // ── Captive allocation with physical constraint ──
+    // "Spare" = production after DOD contract is fulfilled. Captive demand is preferred
+    // (lower-cost internal supply vs. buying at market), but hard-capped by spare capacity.
+    // Any demand exceeding spare capacity is sourced from the open market (marketPurchase).
+    // captiveCapped flag triggers a warning when the constraint bites.
     const spare = Math.max(0, production - dodTons);
-    const desiredCaptive = totalTXGOESDemand * captivePct;
-    const actualCaptive = Math.min(desiredCaptive, spare);
-    const marketPurchase = totalTXGOESDemand - actualCaptive;
-    const captiveCapped = desiredCaptive > spare;
+    const desiredCaptive = totalTXGOESDemand * captivePct; // target captive tons (% of demand)
+    const actualCaptive = Math.min(desiredCaptive, spare); // capped by available production
+    const marketPurchase = totalTXGOESDemand - actualCaptive; // deficit sourced from market
+    const captiveCapped = desiredCaptive > spare; // true when production can't meet captive target
 
-    // GOES segment
+    // ── GOES segment P&L ──
+    // Third-party = all production not going to DOD or captive TX supply.
+    // COGS is on ALL production tons (including captive); the captive "cost" is absorbed
+    // within the TX segment (gfGOESCostCap). The GOES gross profit reflects full production cost.
     const thirdPartyTons = Math.max(0, production - dodTons - actualCaptive);
-    const dodRevenue = (dodTons * DOD_PRICE) / 1e6;
-    const thirdPartyRevenue = (thirdPartyTons * mktPrice) / 1e6;
-    const goesExtRev = dodRevenue + thirdPartyRevenue;
-    const goesCOGS = (production * prodCost) / 1e6;
-    const goesGP = goesExtRev - goesCOGS;
+    const dodRevenue = (dodTons * DOD_PRICE) / 1e6;         // premium-priced DOD contract
+    const thirdPartyRevenue = (thirdPartyTons * mktPrice) / 1e6; // market-priced external sales
+    const goesExtRev = dodRevenue + thirdPartyRevenue;       // total external GOES revenue ($M)
+    const goesCOGS = (production * prodCost) / 1e6;          // all-in production cost ($M)
+    const goesGP = goesExtRev - goesCOGS;                    // GOES gross profit (before OH)
 
-    // Non-GOES
+    // Non-GOES (roll-forming, slitting, other value-added products): tracks CPI
     const nonGoesRevY = nonGoesRevenue * nonGoesEsc;
     const nonGoesGP = nonGoesRevY * nonGoesMargin;
 
-    // GOES segment EBITDA — overhead as % of Steel Mill segment revenue
+    // Overhead (SG&A) as % of Steel Mill segment total revenue (replaces fixed $M approach).
+    // Scales with revenue so expansion doesn't artificially inflate margins.
     const overheadY = (goesExtRev + nonGoesRevY) * overheadPct;
     const goesEBITDA = goesGP + nonGoesGP - overheadY;
     const goesSegRev = goesExtRev + nonGoesRevY;
     const goesMargin = goesSegRev > 0 ? goesEBITDA / goesSegRev : 0;
 
-    // ── Transformer Existing Business ── (zeroed if disabled or before start year)
+    // ── Transformer Existing Business ──
+    // Pre-integration EBITDA = txBaseRevenue × margin (base case; escalates with TX price index).
+    // Captive advantage: captive GOES is valued at prodCost (not mktPrice), so savings =
+    //   (mktPrice - prodCost) × captive tons. This advantage is proportionally allocated
+    //   between Existing and Greenfield based on their share of total TX GOES demand.
     const txExistRevY = existStarted ? txBaseRevenue * txPriceEsc : 0;
-    const txExistEBITDA_pre = txExistRevY * txBaseEBITDAMargin;
-    // Captive advantage: proportional allocation
+    const txExistEBITDA_pre = txExistRevY * txBaseEBITDAMargin; // pre-integration EBITDA
+    // existFrac = Existing's share of total TX GOES demand (for pro-rata captive allocation)
     const existFrac = totalTXGOESDemand > 0 ? existGOESDemand / totalTXGOESDemand : 0;
-    const existCaptive = actualCaptive * existFrac;
+    const existCaptive = actualCaptive * existFrac; // tons of captive GOES used by Existing TX
+    // Captive advantage: savings from internal supply vs. open-market purchase
     const captiveAdvExist = existCaptive * (mktPrice - prodCost) / 1e6;
-    const adjExistEBITDA = txExistEBITDA_pre + captiveAdvExist;
-    // Existing non-core
+    const adjExistEBITDA = txExistEBITDA_pre + captiveAdvExist; // integration-adjusted EBITDA
+    // Non-core (grid equipment, ancillary products acquired with the TX company):
     const txAcqNCRevY = existStarted ? txAcqNonCoreRevenue * txPriceEsc : 0;
     const txAcqNCEBITDA = txAcqNCRevY * txAcqNonCoreMargin;
 
-    // ── Transformer Greenfield ── (zeroed if disabled)
+    // ── Transformer Greenfield ──
+    // Revenue: units × ASP (escalated by txPriceEsc). Units scale with ramp factor rp.
+    // GOES cost: split between captive (at prodCost) and market purchase (at mktPrice).
+    // The gfFrac is Greenfield's share of total TX GOES demand.
     const mpRevY = (mpUnitsY * mpASP * txPriceEsc) / 1e6;
     const distRevY = (distUnitsY * distASP * txPriceEsc) / 1e6;
-    // GOES cost for greenfield
+    // GOES cost for greenfield: proportionally allocated from the aggregate captive/market pools
     const gfFrac = totalTXGOESDemand > 0 ? gfGOESDemand / totalTXGOESDemand : 0;
-    const gfCaptive = actualCaptive * gfFrac;
-    const gfMarketPurchase = marketPurchase * gfFrac;
-    const gfGOESCostCap = (gfCaptive * prodCost) / 1e6;
-    const gfGOESCostMkt = (gfMarketPurchase * mktPrice) / 1e6;
-    const gfGOESCost = gfGOESCostCap + gfGOESCostMkt;
-    // Operating costs — fixed/variable split with learning curve
-    // Learning curve: Year 1 of production has gfLearningCurve premium on variable costs,
-    // declining linearly to 0 over ramp years (mature operations = no premium)
-    const yRel = y - (txGfStartYear || 1) + 1; // years since greenfield start
+    const gfCaptive = actualCaptive * gfFrac;          // captive tons allocated to greenfield
+    const gfMarketPurchase = marketPurchase * gfFrac;  // market-sourced tons for greenfield
+    const gfGOESCostCap = (gfCaptive * prodCost) / 1e6;    // captive at cost-of-production
+    const gfGOESCostMkt = (gfMarketPurchase * mktPrice) / 1e6; // market purchase at spot price
+    const gfGOESCost = gfGOESCostCap + gfGOESCostMkt;     // total GOES input cost for greenfield
+    // Operating costs: fixed/variable split
+    // Variable cost: % of ASP, scaled by learning premium (startup inefficiency) and cost inflation.
+    // Learning curve declines linearly from (1 + gfLearningCurve) to 1.0 by yRel = gfRampYears.
+    const yRel = y - (txGfStartYear || 1) + 1; // years since greenfield production start
     const learningPremium = gfLearningCurve > 0 && gfRampYears > 0
-      ? gfLearningCurve * Math.max(0, 1 - (yRel - 1) / gfRampYears)
+      ? gfLearningCurve * Math.max(0, 1 - (yRel - 1) / gfRampYears) // ramps down to 0 by gfRampYears
       : 0;
-    // Variable costs: % of ASP × units, with learning premium and internalize savings
+    // Variable costs: % of ASP, with learning premium and internalization savings, escalated by supply chain CPI
     const mpVarCostY = (mpUnitsY * mpASP * mpEffVarCostPct * (1 + learningPremium) * txCostEsc) / 1e6;
     const distVarCostY = (distUnitsY * distASP * distEffVarCostPct * (1 + learningPremium) * txCostEsc) / 1e6;
-    // Fixed costs: $M/yr scaled by ramp % (facility overhead — partial even at low ramp)
-    // At ramp, you still incur ~50% of fixed costs (staffed facility) + 50% scales with utilization
+    // Fixed costs: $M/yr at capacity, scaled by fixedRampFrac.
+    // Even at low utilization, you incur ~50% of fixed costs (staffed facility, committed leases).
+    // The other 50% is semi-variable and scales with production ramp.
     const fixedRampFrac = rp > 0 ? 0.5 + 0.5 * rp : 0;
     const mpFixedCostY = gfStarted ? mpFixedCost * fixedRampFrac * cpiEsc : 0;
     const distFixedCostY = gfStarted ? distFixedCost * fixedRampFrac * cpiEsc : 0;
     const gfVarCost = mpVarCostY + distVarCostY;
     const gfFixedCostY = mpFixedCostY + distFixedCostY;
-    const gfOpCost = gfVarCost + gfFixedCostY;
+    const gfOpCost = gfVarCost + gfFixedCostY; // total non-GOES operating cost for greenfield
     const gfRev = mpRevY + distRevY;
     const gfEBITDA = gfRev - gfGOESCost - gfOpCost;
     const gfMargin = gfRev > 0 ? gfEBITDA / gfRev : 0;
-    // Greenfield captive advantage (display)
+    // Captive advantage for greenfield (display): tons × (market price - production cost)
     const captiveAdvGF = gfCaptive * (mktPrice - prodCost) / 1e6;
 
     // ── Transformer Non-Core (Greenfield) — removed from model ──
@@ -878,25 +1010,29 @@ export function runModel(inputs) {
     const margin = totalRev > 0 ? totalEBITDA / totalRev : 0;
 
     // Working capital — DSO/DIO/DPO derived (NWC = CCC/365 × revenue)
-    const nwcPctY = nwcPctRevenue; // structural, from cash conversion cycle
+    const nwcPctY = nwcPctFromCCC; // structural, from cash conversion cycle
     const nwc = totalRev * nwcPctY;
     const deltaNWC = nwc - prevNWC;
     prevNWC = nwc;
 
-    // Growth / acquisition capex deployed in this year
+    // ── Growth capex / DDTL draw-down ──
+    // Deferred capital items (TX acquisition, greenfield) deploy in a specific year.
+    // When they do, the DDTL draws down the corresponding LTV × capex from the committed facility.
+    // The equity portion was deployed at Y0 (full equity commitment at close in PE structures).
     let capexDeploy = 0;
-    if (y === txAcqDeployYear && txAcqDeployYear > 0) capexDeploy += effTxAcqPrice;
-    if (y === gfCapexDeployYear && gfCapexDeployYear > 0) capexDeploy += effGfCapex;
-
-    // DDTL: draw down remaining commitment when deferred capex deploys
+    if (y === txAcqDeployYear && txAcqDeployYear > 0) capexDeploy += effTxAcqPrice; // TX bolt-on closes
+    if (y === gfCapexDeployYear && gfCapexDeployYear > 0) capexDeploy += effGfCapex; // GF construction begins
     if (capexDeploy > 0) {
+      // Draw LTV × capex from undrawn commitment (capped at remaining commitment)
       const newDraw = Math.min(capexDeploy * ltv, totalCommitted - cumulativeDrawn);
-      cumulativeDrawn += newDraw;
-      debtBal += newDraw;
+      cumulativeDrawn += newDraw; // cumulative draw tracker (never decreases)
+      debtBal += newDraw;         // immediately increases outstanding balance
     }
 
-    // Capex, D&A, taxes, FCF
-    // Maintenance capex as % of total consolidated revenue — auto-scales with business
+    // ── Maintenance capex ──
+    // % of total consolidated revenue — auto-scales as business grows. This covers recurring
+    // capex to maintain existing assets (not the acquisition or greenfield build, which are
+    // growth capex captured in the Sources & Uses).
     const mc = totalRev * maintCapexPct;
 
     // D&A: default mode uses % of revenue; advanced mode computes from components
@@ -919,43 +1055,59 @@ export function runModel(inputs) {
       da = totalRev * daPctRevenue;
     }
 
-    // Tax calculation: EBIT must reflect ALL tax-deductible expenses.
-    // D&A is non-cash but tax-deductible (reduces EBIT).
-    // The expensed portion of maintenance capex (routine repairs) is ALSO tax-deductible
-    // but NOT in D&A — we must deduct it separately to compute correct taxable income.
-    const maintExpensed = mc * (1 - MAINT_CAPITALIZATION_RATE);
-    // DDTL interest: full coupon on drawn outstanding + commitment fee on undrawn
+    // ── Tax computation — two versions ──
+    // Taxable income under GAAP deducts D&A (non-cash but deductible) and the expensed
+    // portion of maintenance capex (routine repairs — tax-deductible in the year incurred,
+    // vs. capitalized portion which creates D&A in future years).
+    // We run two parallel tax computations:
+    //   1. Unlevered tax (EBIT basis, no interest deduction): used for UFCF and DCF valuation
+    //   2. Levered tax (EBT basis, after interest): used for LFCF and IRR computation
+    const maintExpensed = mc * (1 - MAINT_CAPITALIZATION_RATE); // portion of MC expensed immediately
+    // Interest = coupon on drawn balance + commitment fee on undrawn DDTL commitment
     const undrawnCommitment = Math.max(0, totalCommitted - cumulativeDrawn);
     const intAnn = debtBal * costOfDebt + undrawnCommitment * ddtlCommitmentFee;
+    // EBIT = EBITDA - D&A - expensed maintenance capex (all tax-deductible non-revenue items)
     const ebit = totalEBITDA - da - maintExpensed;
-    // Unlevered tax (no interest deduction) — used for UFCF and DCF
-    // NOL carryforward per TCJA §172: post-2017 NOLs offset up to 80% of taxable income
+
+    // Unlevered tax: EBIT basis (no interest deduction)
+    // TCJA §172: NOL offsets up to 80% of taxable EBIT; balance carries forward indefinitely.
     let tax, nolUsedUnlevered;
     if (ebit < 0) {
+      // Negative EBIT creates NOL carryforward — no tax due
       nolBalanceUnlevered += Math.abs(ebit);
       tax = 0;
       nolUsedUnlevered = 0;
     } else {
+      // Use NOL to shelter up to 80% of taxable income; pay tax on the remaining 20%+
       nolUsedUnlevered = Math.min(nolBalanceUnlevered, ebit * 0.80);
       tax = Math.max(0, (ebit - nolUsedUnlevered) * taxRate);
       nolBalanceUnlevered -= nolUsedUnlevered;
     }
+    // Unlevered FCF (UFCF): EBITDA - maintenance capex - unlevered taxes - change in NWC
+    // (no interest, no principal — the "pure operations" cashflow for DCF valuation)
     const ufcf = totalEBITDA - mc - tax - deltaNWC;
-    // Section 163(j): limit business interest deduction to interestCapPct × EBITDA
+
+    // ── Section 163(j) interest deductibility cap ──
+    // TCJA §163(j): business interest deduction limited to interestCapPct × EBITDA
+    // (default 30%). Disallowed interest carries forward indefinitely.
+    // Prior-year carryforward is applied first before current-year interest.
     let deductibleInterest = intAnn;
     let disallowedInterest = 0;
     if (interestCapEnabled) {
       const maxDeductible = Math.max(0, totalEBITDA * interestCapPct);
-      // Include carryforward of previously disallowed interest
+      // Total interest available to deduct = current year + carryforward balance
       const totalInterest = intAnn + disallowedInterestBalance;
       deductibleInterest = Math.min(totalInterest, maxDeductible);
-      disallowedInterest = totalInterest - deductibleInterest;
+      disallowedInterest = totalInterest - deductibleInterest; // new carryforward balance
       disallowedInterestBalance = disallowedInterest;
     }
-    // Levered tax (after interest deduction) — used for LFCF
+
+    // Levered tax: EBT basis (after deductible interest — creates the interest tax shield)
+    // Same TCJA §172 80% NOL rule applies on the levered (post-interest) taxable income.
     const ebt = ebit - deductibleInterest;
     let taxLevered, nolUsed;
     if (ebt < 0) {
+      // Negative EBT (typically in early years when interest cost is high): no levered tax
       nolBalance += Math.abs(ebt);
       taxLevered = 0;
       nolUsed = 0;
@@ -964,14 +1116,21 @@ export function runModel(inputs) {
       taxLevered = Math.max(0, (ebt - nolUsed) * taxRate);
       nolBalance -= nolUsed;
     }
-    // Debt service: % of BOY balance amortization + cash sweep above min cash
-    const schedAmort = debtBal * debtAmortPct;
-    const amort = Math.min(schedAmort, debtBal);
+
+    // ── Debt service ──
+    // Mandatory amortization: debtAmortPct × BOY balance (reduces outstanding each year).
+    // Cash sweep: additional voluntary paydown of cashflow above minimum cash reserve.
+    // Sweep is constrained by (a) available pre-sweep FCF above minCashBalance, and
+    // (b) remaining debt balance after scheduled amortization.
+    const schedAmort = debtBal * debtAmortPct; // scheduled mandatory amortization
+    const amort = Math.min(schedAmort, debtBal); // capped at outstanding balance
     const preSweepFCF = totalEBITDA - mc - taxLevered - intAnn - deltaNWC - amort;
-    const sweepable = Math.max(0, preSweepFCF - minCashBalance);
+    const sweepable = Math.max(0, preSweepFCF - minCashBalance); // excess above cash floor
     const sweep = cashSweepPct > 0 ? Math.min(sweepable * cashSweepPct, debtBal - amort) : 0;
     const totalPrincipal = amort + sweep;
-    debtBal = Math.max(0, debtBal - totalPrincipal);
+    debtBal = Math.max(0, debtBal - totalPrincipal); // EOY balance for next year's interest calc
+
+    // Levered FCF (LFCF): what flows to equity after ALL obligations (interest + principal + capex)
     const lfcf = totalEBITDA - mc - taxLevered - intAnn - totalPrincipal - deltaNWC;
     cumUFCF += ufcf;
     cumLFCF += lfcf;
@@ -1012,35 +1171,44 @@ export function runModel(inputs) {
     });
   }
 
-  // ── Terminal value & returns ──
+  // ── Terminal value & exit ──
+  // Standard PE exit: exit multiple × terminal EBITDA × (1 - transaction costs).
+  // Terminal EBITDA = Year N EBITDA (last year of hold). The exit is modeled as a
+  // clean sale: terminal value net of deal costs is the enterprise value received.
   const termYear = years[holdPeriod];
-  const tE = termYear.totalEBITDA;
-  const tv = tE * exitMultiple * (1 - exitTxnCosts);
+  const tE = termYear.totalEBITDA;   // terminal year EBITDA (basis for exit multiple)
+  const tv = tE * exitMultiple * (1 - exitTxnCosts); // net terminal value after deal fees
 
-  // Remaining debt at exit (after amortization + sweeps over hold period)
+  // Remaining debt at exit (after all amortization + optional sweeps over hold period)
   const debtAtExit = termYear.debtBal;
 
-  // IRR (nominal) — timing-aware capital deployment
-  // Unlevered: Y0 gets only items deployed at close; deferred capex appears in its deploy year
+  // ── IRR cashflow vectors — timing-aware ──
+  // Unlevered IRR (project IRR): uses UFCF + deferred capex outflows, no interest/debt.
+  // Y0 = -(y0Uses - doeGrant) — net cash out at close after DOE grant.
+  // Deferred capex: TX acquisition and greenfield appear as outflows in their deploy year.
+  // Terminal year adds the net terminal value (enterprise exit proceeds).
   const uCFs = years.map((yr, i) => {
     let cf = i === 0 ? -(y0Uses - doeGrantAmt) : yr.ufcf;
-    // Deferred capital outflows in their deployment year
-    if (i > 0 && i === txAcqDeployYear) cf -= effTxAcqPrice;
-    if (i > 0 && i === gfCapexDeployYear) cf -= effGfCapex;
-    if (i === holdPeriod) cf += tv;
+    if (i > 0 && i === txAcqDeployYear) cf -= effTxAcqPrice; // bolt-on purchase outflow
+    if (i > 0 && i === gfCapexDeployYear) cf -= effGfCapex;  // greenfield construction outflow
+    if (i === holdPeriod) cf += tv; // exit proceeds
     return cf;
   });
-  // Levered: all debt/equity raised at Y0 (delayed-draw structure), so lCFs[0] = -eq
-  // Deferred capex is funded from the committed facility, no additional equity calls
+
+  // Levered IRR (equity IRR): uses LFCF, equity outflow at Y0, equity-residual at exit.
+  // Y0 = -eq (equity committed at close — DDTL means full facility committed, equity invested).
+  // Exit: LFCF in terminal year + (terminal value - remaining debt) = equity proceeds.
+  // Deferred capex is funded from DDTL draws — NO additional equity calls mid-hold.
   const lCFs = years.map((yr, i) => i === 0 ? -eq : i === holdPeriod ? yr.lfcf + tv - debtAtExit : yr.lfcf);
   const uIRR = calculateIRR(uCFs);
   const lIRR = calculateIRR(lCFs);
 
-  // IRR (real)
+  // Real IRR (inflation-adjusted): (1 + nominal) / (1 + CPI) - 1 (Fisher equation)
   const realUIRR = uIRR != null ? (1 + uIRR) / (1 + cpiRate) - 1 : null;
   const realLIRR = lIRR != null ? (1 + lIRR) / (1 + cpiRate) - 1 : null;
 
-  // Operational IRR — levered IRR assuming exit multiple = entry multiple (zero expansion)
+  // Operational IRR: hypothetical levered IRR if exit multiple = entry multiple (zero expansion).
+  // Isolates value created by EBITDA growth + debt paydown from multiple re-rating.
   const tvNoExpansion = tE * entryMultiple * (1 - exitTxnCosts);
   const opLCFs = years.map((yr, i) =>
     i === 0 ? lCFs[0] :
@@ -1049,21 +1217,24 @@ export function runModel(inputs) {
   );
   const opLIRR = calculateIRR(opLCFs);
 
-  // Equity multiple (MOIC)
+  // Equity multiple (MOIC = Multiple on Invested Capital):
+  // Total distributions to equity / equity invested = (sum of LFCFs + exit proceeds) / equity.
   const tDist = years.reduce((s, yr) => s + yr.lfcf, 0) + tv - debtAtExit;
   const equityMultiple = eq > 0 ? tDist / eq : 0;
 
-  // Payback period — uses timing-aware cashflows
+  // ── Payback periods ──
+  // Unlevered payback: years for cumulative timing-aware UFCFs to recover total investment.
+  // Interpolated for fractional years (e.g. 6.3 years).
   let cum = 0, pb = null;
   for (let i = 0; i <= holdPeriod; i++) {
     cum += uCFs[i];
     if (cum >= 0 && pb === null && i > 0) {
-      const prev = cum - uCFs[i];
-      pb = i - 1 + (-prev) / uCFs[i];
+      const prev = cum - uCFs[i]; // cumulative just before this year
+      pb = i - 1 + (-prev) / uCFs[i]; // linear interpolation to crossing point
     }
   }
 
-  // Levered payback period — years for cumulative levered FCF to recover equity
+  // Levered payback: years for cumulative LFCF to recover equity invested (-eq at Y0).
   let levCum = -eq, levPayback = null;
   for (let i = 1; i <= holdPeriod; i++) {
     const prev = levCum;
@@ -1073,7 +1244,8 @@ export function runModel(inputs) {
     }
   }
 
-  // DPI equity payback — year where cumulative DPI crosses 1.0x
+  // DPI payback year: first year where cumulative DPI (distributions / equity paid-in) ≥ 1.0×.
+  // DPI ≥ 1.0 means equity has been returned in full from operating cashflows (before exit).
   const equityPaybackYearObj = years.find(yr => yr.dpi >= 1.0);
   const equityPaybackYear = equityPaybackYearObj ? equityPaybackYearObj.year : null;
 
@@ -1120,26 +1292,31 @@ export function runModel(inputs) {
   const stab = years[Math.min(4, holdPeriod)] || years[years.length - 1];
 
   // ── DCF Valuation ──
-  // Present Value of Interim Free Cash Flows
+  // Discounted at WACC on unlevered FCFs (UFCF). Enterprise value = PV(FCFs) + PV(TV).
+  // Equity value = enterprise value - initial net debt.
+  // We use debtInitial (not debtAtExit) because DCF values the enterprise as of acquisition.
   const pvFCFs = years.filter(yr => yr.year > 0).map((yr, i) => yr.ufcf / Math.pow(1 + wacc, i + 1));
   const sumPVFCFs = pvFCFs.reduce((s, v) => s + v, 0);
 
-  // Method A: Exit Multiple
+  // Method A: Exit Multiple — terminal value = last year EBITDA × exit multiple × (1 - deal costs)
+  // (Same as the actual PE exit mechanic; consistent with IRR calculation.)
   const tvExitMult = tv;
-  const pvTVExit = tvExitMult / Math.pow(1 + wacc, holdPeriod);
+  const pvTVExit = tvExitMult / Math.pow(1 + wacc, holdPeriod); // discounted to Y0
   const evExit = sumPVFCFs + pvTVExit;
 
-  // Method B: Gordon Growth
+  // Method B: Gordon Growth Model — TV = terminal UFCF × (1+g) / (WACC - g)
+  // Requires WACC > terminalGrowth (otherwise denominator is ≤ 0 → infinite/undefined TV).
+  // Terminal UFCF grows at terminalGrowth perpetually — consistent with GDP+inflation long-run assumption.
   const terminalUFCF = termYear.ufcf;
   const tvGordon = (wacc > terminalGrowth && terminalUFCF > 0)
     ? (terminalUFCF * (1 + terminalGrowth)) / (wacc - terminalGrowth) : 0;
   const pvTVGordon = tvGordon / Math.pow(1 + wacc, holdPeriod);
   const evGordon = sumPVFCFs + pvTVGordon;
 
-  // Both methods subtract initial (close-date) net debt — DCF values the enterprise as of acquisition
+  // Equity value = enterprise value - close-date debt (not EOY-10 — DCF reflects day-1 valuation)
   const eqValExit = evExit - debtInitial;
   const eqValGordon = evGordon - debtInitial;
-  const impliedMultiple = tE > 0 ? evExit / tE : 0;
+  const impliedMultiple = tE > 0 ? evExit / tE : 0; // EV / terminal EBITDA
 
   // Backward compat aliases
   const ev = evExit;
@@ -1147,52 +1324,69 @@ export function runModel(inputs) {
   const eqVal = eqValExit;
   const implM = impliedMultiple;
 
-  // ── CAGRs (entry basis → terminal) ──
+  // ── CAGRs (compound annual growth rates, entry basis → terminal year) ──
+  // CAGR = (endValue/startValue)^(1/years) - 1
+  // Y0 basis = entry snapshot (standalone Steel Mill at acquisition); terminal = Year N consolidated.
   const y0Rev = years[0].totalRev;
   const y0EBITDA = years[0].totalEBITDA;
   const revCAGR = (y0Rev > 0 && tE > 0) ? Math.pow(termYear.totalRev / y0Rev, 1 / holdPeriod) - 1 : null;
   const ebitdaCAGR = (y0EBITDA > 0 && tE > 0) ? Math.pow(tE / y0EBITDA, 1 / holdPeriod) - 1 : null;
 
   // ── Returns Attribution Waterfall ──
-  // Decomposes equity returns into PE standard buckets
+  // Standard PE decomposition: where did the equity return come from?
+  // Three buckets (plus interim FCF distributions):
+  //   1. EBITDA growth: (terminal - Y1 EBITDA) × entry multiple — value from growing earnings
+  //   2. Multiple expansion: (exitMultiple - entryMultiple) × terminal EBITDA — re-rating premium
+  //   3. Debt paydown: debtInitial - debtAtExit — equity value freed by deleveraging
+  //   4. Cum FCF: positive operating cashflows distributed during hold (not reinvested)
   const y1EBITDA = years[1] ? years[1].totalEBITDA : y1ButlerEBITDA;
   const exitEV = tE * exitMultiple;
-  const ebitdaGrowthContrib = (tE - y1EBITDA) * entryMultiple;
-  const multipleContrib = (exitMultiple - entryMultiple) * tE;
-  const debtPaydownContrib = debtInitial - debtAtExit;
+  const ebitdaGrowthContrib = (tE - y1EBITDA) * entryMultiple; // EBITDA delta valued at entry multiple
+  const multipleContrib = (exitMultiple - entryMultiple) * tE;  // multiple expansion on terminal earnings
+  const debtPaydownContrib = debtInitial - debtAtExit;           // principal repaid = equity value created
   const cumPositiveLFCF = years.reduce((s, yr) => s + Math.max(0, yr.lfcf), 0);
-  const exitEquity = tv - debtAtExit + cumLFCF;
+  const exitEquity = tv - debtAtExit + cumLFCF; // total equity proceeds: exit residual + all LFCF
   const returnsAttribution = {
-    entryEquity: eq,
-    exitEV,
-    ebitdaGrowthContrib,
-    multipleContrib,
-    debtPaydownContrib,
-    cumFCF: cumPositiveLFCF,
-    exitEquity,
+    entryEquity: eq,          // equity invested at close
+    exitEV,                   // gross enterprise value at exit
+    ebitdaGrowthContrib,      // $M: EBITDA growth contribution (at entry multiple)
+    multipleContrib,          // $M: multiple re-rating contribution
+    debtPaydownContrib,       // $M: debt reduction contribution
+    cumFCF: cumPositiveLFCF,  // $M: cumulative positive operating cashflow
+    exitEquity,               // $M: total equity value at exit
   };
 
   // ── GP/LP Economics (European waterfall) ──
+  // European waterfall = all capital returned before carry is paid (vs. American = deal-by-deal).
+  // Waterfall order:
+  //   1. Return of LP capital (eq)
+  //   2. Preferred return (lpPreferredReturn = eq × ((1+hurdle)^n - 1)) — compound hurdle
+  //   3. Carried interest = carryPct × profit above preferred
+  //   4. Management fees deducted before carry computation
+  // Management option pool (mgmtEquityPct) dilutes total distributions — simulates option grants
+  // that flow to management team before GP/LP split.
   const { mgmtFee, carryPct, preferredReturn, mgmtEquityPct } = p;
-  const totalMgmtFees = mgmtFee * eq * holdPeriod;
-  const totalDistributions = tDist; // total distributions to equity (already computed above)
-  const mgmtDilution = totalDistributions * mgmtEquityPct;
+  const totalMgmtFees = mgmtFee * eq * holdPeriod; // annual fee × committed equity × years
+  const totalDistributions = tDist; // total equity distributions (LFCF + exit proceeds - debt)
+  const mgmtDilution = totalDistributions * mgmtEquityPct; // management option carve-out
   const netDistributions = totalDistributions - mgmtDilution;
+  // Compound preferred return: LP earns hurdle on contributed equity before GP gets carry
   const lpPreferredReturn = eq * (Math.pow(1 + preferredReturn, holdPeriod) - 1);
+  // Profit above preferred = amount available for carry (after returning equity + preferred + fees)
   const profitAbovePreferred = Math.max(0, netDistributions - totalMgmtFees - eq - lpPreferredReturn);
-  const carry = profitAbovePreferred * carryPct;
-  const netToLP = netDistributions - totalMgmtFees - carry;
+  const carry = profitAbovePreferred * carryPct; // GP carried interest (typically 20%)
+  const netToLP = netDistributions - totalMgmtFees - carry; // LP net proceeds
   const netLPMOIC = eq > 0 ? netToLP / eq : 0;
-  // Net LP IRR: construct cash flow series with fees/carry deducted at exit
+  // Net LP IRR: simplified (all fees/carry deducted at exit, LP sees -eq at Y0 and netToLP at exit)
   const lpCFs = years.map((_, i) => i === 0 ? -eq : i === holdPeriod ? netToLP : 0);
   const netLPIRR = calculateIRR(lpCFs);
   const gpLp = {
-    totalFees: totalMgmtFees,
-    carry,
-    netToLP,
-    netLPMOIC,
-    netLPIRR,
-    mgmtDilution,
+    totalFees: totalMgmtFees, // total management fees over hold period
+    carry,                    // GP carried interest ($M)
+    netToLP,                  // LP net proceeds ($M)
+    netLPMOIC,                // LP net MOIC after fees and carry
+    netLPIRR,                 // LP net IRR after fees and carry
+    mgmtDilution,             // management option pool dilution ($M)
   };
 
   // ── Chart data ──
@@ -1244,7 +1438,14 @@ export function runModel(inputs) {
   };
 }
 
-// ── Helper: zero year entry ──
+/**
+ * zeroYear — creates a blank Year-0 entry object with all numeric output keys set to 0.
+ * Used as the Y0 entry basis placeholder in the years[] array. Year 0 is not a projection
+ * year — it represents the normalized snapshot at acquisition (starting utilization, pre-duopoly
+ * pricing, no TX segment yet). The caller fills in the relevant fields after calling zeroYear().
+ * All keys in the returned object match the shape of operating year objects (so UI components
+ * can iterate consistently from Y0 through YN without type guards).
+ */
 function zeroYear() {
   const z = { year: 0, rp: 0, duo: false, doeActive: false, doeBlend: 0, dodActive: false, captiveCapped: false, utilY: 0 };
   const numKeys = [
@@ -1272,7 +1473,14 @@ function zeroYear() {
   return z;
 }
 
-// ─── Utility: strip label/custom metadata ───────────────────────────────────
+/**
+ * strip — removes UI-only metadata from a preset/scenario object before passing to runModel().
+ * Preset objects stored in the instance (DEFAULTS, user customs) carry `label` (display name)
+ * and `custom` (boolean flag for custom presets) fields. runModel() doesn't know these keys —
+ * stripping them avoids accidental shadowing if modelEngine ever adds those as input names.
+ * @param {Object} obj - Preset object (may have label/custom fields)
+ * @returns {Object} Clean inputs object suitable for runModel()
+ */
 export function strip(obj) {
   if (!obj) return {};
   const { label: _L, custom: _C, ...rest } = obj;

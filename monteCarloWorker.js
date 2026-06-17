@@ -15,14 +15,16 @@ self.onmessage = function (e) {
   try {
     const result = runMonteCarlo(runModel, baseInputs, variableConfigs, n, onProgress);
 
-    // probIRR is a function — compute common thresholds before sending
+    // probIRR is a closure over the sorted IRR array — can't be serialized via structured clone.
+    // Pre-compute probability of exceeding each threshold and send the plain object instead.
+    // Thresholds chosen to span typical PE hurdle rates (8%, 10%, 12%, 15%) and aspirational (20%, 25%).
     const probabilities = {
-      8: result.probIRR(0.08),
-      10: result.probIRR(0.10),
-      12: result.probIRR(0.12),
-      15: result.probIRR(0.15),
-      20: result.probIRR(0.20),
-      25: result.probIRR(0.25),
+      8: result.probIRR(0.08),   // P(IRR ≥ 8%)  — minimum PE hurdle
+      10: result.probIRR(0.10),  // P(IRR ≥ 10%) — common limited partnership hurdle
+      12: result.probIRR(0.12),  // P(IRR ≥ 12%) — lower bound of attractive PE return
+      15: result.probIRR(0.15),  // P(IRR ≥ 15%) — typical PE target return
+      20: result.probIRR(0.20),  // P(IRR ≥ 20%) — strong PE return
+      25: result.probIRR(0.25),  // P(IRR ≥ 25%) — exceptional PE return
     };
 
     self.postMessage({

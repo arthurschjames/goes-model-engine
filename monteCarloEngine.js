@@ -4,26 +4,40 @@
 
 // ─── Standard Normal CDF & Inverse CDF ──────────────────────────────────────
 
-/** Standard normal CDF using rational approximation (Abramowitz & Stegun 26.2.17) */
+/**
+ * Standard normal CDF: Φ(x) = P(Z ≤ x) for Z ~ N(0,1).
+ * Uses Abramowitz & Stegun (1964) formula 26.2.17 — rational approximation with max error < 7.5e-8.
+ * The a1..a5 + p coefficients are polynomial coefficients of the approximation.
+ * Reflection identity used for negative x: Φ(-x) = 1 - Φ(x).
+ * This is used in the Cholesky-based sampling: normalCDF(w[k]) converts a correlated standard
+ * normal w[k] into a uniform [0,1] value that can then be passed to the inverse CDF of any target distribution.
+ */
 function normalCDF(x) {
   const a1 = 0.254829592;
   const a2 = -0.284496736;
   const a3 = 1.421413741;
   const a4 = -1.453152027;
   const a5 = 1.061405429;
-  const p = 0.3275911;
+  const p = 0.3275911;   // shape parameter in the Horner-form rational approximation
 
   const sign = x < 0 ? -1 : 1;
   const absX = Math.abs(x);
-  const t = 1.0 / (1.0 + p * absX);
+  const t = 1.0 / (1.0 + p * absX); // parameter substitution: t = 1/(1 + p|x|)
+  // Horner-form polynomial evaluation for efficiency: ((((a5*t + a4)*t + a3)*t + a2)*t + a1)*t
   const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2);
-  return 0.5 * (1.0 + sign * y);
+  return 0.5 * (1.0 + sign * y); // Φ(x) for x>0; 1-Φ(|x|) for x<0
 }
 
-/** Sample standard normal using Box-Muller transform */
+/**
+ * Sample a standard normal N(0,1) using the Box-Muller transform.
+ * Algorithm: given U1, U2 ~ Uniform(0,1], Z = sqrt(-2 ln U1) × cos(2π U2) ~ N(0,1).
+ * The do-while guards against U1=0 (log(0) is undefined).
+ * Only the cosine variate is returned (the sine variate is discarded for simplicity;
+ * a more efficient version would cache it — not needed here as we call this O(n×m) times).
+ */
 function sampleStdNormal() {
   let u1, u2;
-  do { u1 = Math.random(); } while (u1 === 0);
+  do { u1 = Math.random(); } while (u1 === 0); // avoid log(0)
   u2 = Math.random();
   return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
 }
@@ -35,9 +49,15 @@ function inverseCDFUniform(u, min, max) {
   return min + u * (max - min);
 }
 
-/** Inverse CDF for triangular distribution */
+/**
+ * Inverse CDF (quantile function) for the triangular distribution.
+ * fc = (mode - min) / (max - min) = the CDF at the mode (critical probability).
+ * For u < fc (left of mode): value = min + sqrt(u × (max-min) × (mode-min))
+ * For u ≥ fc (right of mode): value = max - sqrt((1-u) × (max-min) × (max-mode))
+ * Used to map correlated uniforms into expert-estimated ranges with a central estimate.
+ */
 function inverseCDFTriangular(u, min, mode, max) {
-  const fc = (mode - min) / (max - min);
+  const fc = (mode - min) / (max - min); // critical probability = CDF at mode
   if (u < fc) return min + Math.sqrt(u * (max - min) * (mode - min));
   return max - Math.sqrt((1 - u) * (max - min) * (max - mode));
 }
@@ -222,6 +242,13 @@ function rankArray(arr) {
   return ranks;
 }
 
+/**
+ * Spearman rank correlation between x[] and y[].
+ * Formula: ρ = 1 - (6 × Σd²) / (n(n²-1)) where d = rank(x[i]) - rank(y[i]).
+ * Non-parametric — captures monotonic (not just linear) relationships.
+ * Returns 0 for n < 3 (insufficient observations for a meaningful result).
+ * Used in the sensitivity ranking: variables with highest |ρ| vs. IRR are the key drivers.
+ */
 function spearmanCorrelation(x, y) {
   const n = x.length;
   if (n < 3) return 0;
@@ -229,7 +256,7 @@ function spearmanCorrelation(x, y) {
   const ry = rankArray(y);
   let sumD2 = 0;
   for (let i = 0; i < n; i++) {
-    const d = rx[i] - ry[i];
+    const d = rx[i] - ry[i]; // rank difference
     sumD2 += d * d;
   }
   return 1 - (6 * sumD2) / (n * (n * n - 1));
@@ -237,12 +264,17 @@ function spearmanCorrelation(x, y) {
 
 // ─── Percentile Calculation ────────────────────────────────────────────────
 
+/**
+ * Compute the p-th percentile of a sorted array using linear interpolation.
+ * idx = (p/100) × (n-1); interpolates between sorted[lo] and sorted[hi].
+ * Requires the array to be pre-sorted in ascending order.
+ */
 function percentile(sorted, p) {
   const idx = (p / 100) * (sorted.length - 1);
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
   if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo); // linear interpolation
 }
 
 // ─── Run Monte Carlo Simulation ────────────────────────────────────────────
